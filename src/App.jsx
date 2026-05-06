@@ -8,7 +8,7 @@ export default function PineLakeApp() {
   const [schedules,setSchedules] = useState({})
   const [clockedIn,setClockedIn] = useState({})
   const [clockLog,setClockLog] = useState([])
-  const [allLogs, setAllLogs] = useState([]) // NEW: Stores entire database history
+  const [allLogs, setAllLogs] = useState([])
   const [screen,setScreen] = useState("kiosk")
   const [authEmp,setAuthEmp] = useState(null)
   const [managerSession,setMgrSession] = useState(null)
@@ -37,7 +37,7 @@ export default function PineLakeApp() {
 
       const { data: logs } = await supabase.from("clock_logs").select("id, employee_id, action, created_at").order("created_at", { ascending: false })
       if (logs && empData) {
-        setAllLogs(logs) // Save raw history for payroll
+        setAllLogs(logs)
         const cState = {}
         const rLogs = []
         const seen = new Set()
@@ -77,20 +77,20 @@ export default function PineLakeApp() {
     if (employees.length === 0) return
 
     const channel = supabase
-      .channel('live-clock')
+      .channel("live-clock")
       .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'clock_logs' },
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clock_logs" },
         (payload) => {
           const log = payload.new
           const emp = employees.find(e => e.id === log.employee_id)
           if (!emp) return
 
-          setAllLogs(prev => [log, ...prev]) // Push new events to history array
+          setAllLogs(prev => [log, ...prev])
 
           setClockedIn(prev => {
             const next = { ...prev }
-            if (log.action === 'IN') {
+            if (log.action === "IN") {
               next[emp.id] = new Date(log.created_at).getTime()
             } else {
               delete next[emp.id]
@@ -98,7 +98,7 @@ export default function PineLakeApp() {
             return next
           })
 
-          const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
           setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
         }
       )
@@ -115,7 +115,6 @@ export default function PineLakeApp() {
     return Math.floor((Date.now()-ts)/1000)
   }
 
-  // NEW: Payroll Engine Calculator
   function getTimesheetSummary() {
     const summary = {}
     employees.forEach(emp => {
@@ -137,6 +136,34 @@ export default function PineLakeApp() {
     return summary
   }
   const timesheets = getTimesheetSummary()
+
+  async function handleFinalizePayroll() {
+    const today = new Date().toISOString().split("T")[0]
+    const records = employees.map(emp => {
+      const stats = timesheets[emp.id] || { hours: "0.00", pay: "0.00" }
+      return {
+        employee_id: emp.id,
+        week_start_date: today,
+        total_hours: parseFloat(stats.hours),
+        pay_rate_at_time: emp.baseRate,
+        gross_pay: parseFloat(stats.pay)
+      }
+    })
+
+    const activeRecords = records.filter(r => r.total_hours > 0)
+
+    if (activeRecords.length === 0) {
+      alert("No hours logged to save")
+      return
+    }
+
+    const { error } = await supabase.from("payroll_history").insert(activeRecords)
+    if (!error) {
+      alert("Payroll successfully locked into history")
+    } else {
+      alert("Error saving payroll")
+    }
+  }
 
   async function handleSaveEmployee(empData) {
     if (empData.id && typeof empData.id === "number" && String(empData.id).length < 10) {
@@ -164,7 +191,6 @@ export default function PineLakeApp() {
     if (error) return
     const t = new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
     
-    // Optimistic UI Update
     const newLog = { employee_id: emp.id, action: actionType, created_at: new Date().toISOString() }
     setAllLogs(prev => [newLog, ...prev])
 
@@ -214,7 +240,7 @@ export default function PineLakeApp() {
             const elapsed=getElapsed(emp.id)
             const col=ROLE_COLORS[emp.role]||"#7ec8e3"
             return (
-              <button key={emp.id} onClick={()=>{setAuthEmp(emp);setScreen("emp-auth")}}
+              <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("emp-auth")}}
                 className={`flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl cursor-pointer text-left w-full transition-all duration-300 border-[1.5px] ${isIn ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
                 <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
                 <div className="flex-1 min-w-0">
@@ -255,7 +281,7 @@ export default function PineLakeApp() {
   if(screen==="manager-login") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
       <div className="w-full max-w-[340px]">
-        <ManagerLogin onSuccess={sess=>{setMgrSession(sess);setScreen("manager-dashboard");setMgrTab("timesheets")}} onCancel={()=>setScreen("kiosk")}/>
+        <ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard"); setMgrTab("timesheets")}} onCancel={()=>setScreen("kiosk")}/>
       </div>
     </div>
   )
@@ -280,11 +306,11 @@ export default function PineLakeApp() {
       
       <div className="px-7 py-6">
         
-        {/* NEW TIMESHEETS TAB */}
         {managerTab==="timesheets"&&(
           <div>
             <div className="flex justify-between items-center mb-4.5">
               <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Payroll & Timesheets</div></div>
+              <button onClick={handleFinalizePayroll} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold">Finalize Payroll</button>
             </div>
             <div className="flex flex-col gap-2.5">
               {employees.map(emp=>{
