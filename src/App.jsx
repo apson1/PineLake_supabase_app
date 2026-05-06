@@ -8,10 +8,11 @@ export default function PineLakeApp() {
   const [schedules,setSchedules] = useState({})
   const [clockedIn,setClockedIn] = useState({})
   const [clockLog,setClockLog] = useState([])
+  const [allLogs, setAllLogs] = useState([]) // NEW: Stores entire database history
   const [screen,setScreen] = useState("kiosk")
   const [authEmp,setAuthEmp] = useState(null)
   const [managerSession,setMgrSession] = useState(null)
-  const [managerTab,setMgrTab] = useState("clock")
+  const [managerTab,setMgrTab] = useState("employees")
   const [showAddEmp,setShowAddEmp] = useState(false)
   const [editEmp,setEditEmp] = useState(null)
   const [now,setNow] = useState(new Date())
@@ -36,6 +37,7 @@ export default function PineLakeApp() {
 
       const { data: logs } = await supabase.from("clock_logs").select("id, employee_id, action, created_at").order("created_at", { ascending: false })
       if (logs && empData) {
+        setAllLogs(logs) // Save raw history for payroll
         const cState = {}
         const rLogs = []
         const seen = new Set()
@@ -84,6 +86,8 @@ export default function PineLakeApp() {
           const emp = employees.find(e => e.id === log.employee_id)
           if (!emp) return
 
+          setAllLogs(prev => [log, ...prev]) // Push new events to history array
+
           setClockedIn(prev => {
             const next = { ...prev }
             if (log.action === 'IN') {
@@ -111,6 +115,29 @@ export default function PineLakeApp() {
     return Math.floor((Date.now()-ts)/1000)
   }
 
+  // NEW: Payroll Engine Calculator
+  function getTimesheetSummary() {
+    const summary = {}
+    employees.forEach(emp => {
+      const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+      let msTotal = 0
+      let lastIn = null
+      empLogs.forEach(log => {
+        if (log.action === "IN") lastIn = new Date(log.created_at).getTime()
+        else if (log.action === "OUT" && lastIn) {
+          msTotal += (new Date(log.created_at).getTime() - lastIn)
+          lastIn = null
+        }
+      })
+      summary[emp.id] = {
+        hours: (msTotal / 3600000).toFixed(2),
+        pay: ((msTotal / 3600000) * (emp.baseRate || 0)).toFixed(2)
+      }
+    })
+    return summary
+  }
+  const timesheets = getTimesheetSummary()
+
   async function handleSaveEmployee(empData) {
     if (empData.id && typeof empData.id === "number" && String(empData.id).length < 10) {
       const { error } = await supabase.from("employees").update({
@@ -136,6 +163,11 @@ export default function PineLakeApp() {
     const { error } = await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: actionType }])
     if (error) return
     const t = new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+    
+    // Optimistic UI Update
+    const newLog = { employee_id: emp.id, action: actionType, created_at: new Date().toISOString() }
+    setAllLogs(prev => [newLog, ...prev])
+
     setClockedIn(prev => {
       const n = { ...prev }
       if (isIn) delete n[emp.id]
@@ -223,7 +255,7 @@ export default function PineLakeApp() {
   if(screen==="manager-login") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
       <div className="w-full max-w-[340px]">
-        <ManagerLogin onSuccess={sess=>{setMgrSession(sess);setScreen("manager-dashboard");setMgrTab("employees")}} onCancel={()=>setScreen("kiosk")}/>
+        <ManagerLogin onSuccess={sess=>{setMgrSession(sess);setScreen("manager-dashboard");setMgrTab("timesheets")}} onCancel={()=>setScreen("kiosk")}/>
       </div>
     </div>
   )
@@ -242,10 +274,42 @@ export default function PineLakeApp() {
         </div>
         <div className="flex">
           <button style={managerTab==="employees"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("employees")}>Employees</button>
+          <button style={managerTab==="timesheets"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("timesheets")}>Timesheets</button>
         </div>
       </div>
       
       <div className="px-7 py-6">
+        
+        {/* NEW TIMESHEETS TAB */}
+        {managerTab==="timesheets"&&(
+          <div>
+            <div className="flex justify-between items-center mb-4.5">
+              <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Payroll & Timesheets</div></div>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {employees.map(emp=>{
+                const stats = timesheets[emp.id] || { hours: "0.00", pay: "0.00" }
+                const col = ROLE_COLORS[emp.role]||"#555"
+                return (
+                  <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+                      <div>
+                        <div className="text-[13px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                        <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role} • ${Number(emp.baseRate).toFixed(2)}/hr</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[18px] font-mono font-bold text-[#06d6a0]">{stats.hours} hrs</div>
+                      <div className="text-[11px] text-[#4a6a8a] mt-0.5">Est Pay: ${stats.pay}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {managerTab==="employees"&&(
           <div>
             <div className="flex justify-between items-center mb-4.5">
