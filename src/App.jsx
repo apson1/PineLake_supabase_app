@@ -77,39 +77,39 @@ export default function PineLakeApp() {
     loadData()
   },[])
 
-useEffect(() => {
-  if (employees.length === 0) return
+  useEffect(() => {
+    if (employees.length === 0) return
 
-  const channel = supabase
-    .channel('live-clock')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'clock_logs' },
-      (payload) => {
-        const log = payload.new
-        const emp = employees.find(e => e.id === log.employee_id)
-        if (!emp) return
+    const channel = supabase
+      .channel('live-clock')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'clock_logs' },
+        (payload) => {
+          const log = payload.new
+          const emp = employees.find(e => e.id === log.employee_id)
+          if (!emp) return
 
-        setClockedIn(prev => {
-          const next = { ...prev }
-          if (log.action === 'IN') {
-            next[emp.id] = new Date(log.created_at).getTime()
-          } else {
-            delete next[emp.id]
-          }
-          return next
-        })
+          setClockedIn(prev => {
+            const next = { ...prev }
+            if (log.action === 'IN') {
+              next[emp.id] = new Date(log.created_at).getTime()
+            } else {
+              delete next[emp.id]
+            }
+            return next
+          })
 
-        const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
-      }
-    )
-    .subscribe()
+          const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
+        }
+      )
+      .subscribe()
 
-  return () => {
-    supabase.removeChannel(channel)
-  }
-}, [employees])
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [employees])
 
   const wk = weekKey(weekIdx)
   const currentSchedule = schedules[wk] || blankWeek(employees)
@@ -197,23 +197,26 @@ useEffect(() => {
           <button onClick={()=>setScreen("manager-login")} className="ml-auto bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Manager</button>
         </div>
       </div>
-      <div style={{padding:"0 28px"}}>
-        <div style={{fontSize:12,color:"#3a5a7a",textAlign:"center",marginBottom:20,fontFamily:"'JetBrains Mono',monospace",letterSpacing:"0.08em"}}>TAP YOUR NAME TO CLOCK IN OR OUT</div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div className="px-7">
+        <div className="text-[12px] text-[#3a5a7a] text-center mb-5 font-mono tracking-[0.08em]">TAP YOUR NAME TO CLOCK IN OR OUT</div>
+        <div className="flex flex-col gap-2.5">
           {employees.map(emp=>{
             const isIn=!!clockedIn[emp.id]
             const elapsed=getElapsed(emp.id)
             const col=ROLE_COLORS[emp.role]||"#7ec8e3"
             return (
               <button key={emp.id} onClick={()=>{setAuthEmp(emp);setScreen("emp-auth")}}
-                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",background:isIn?"#0d1f14":"#131b27",border:"1.5px solid " + (isIn?"#06d6a0":"#1e2a38"),borderRadius:12,cursor:"pointer",textAlign:"left",width:"100%",transition:"all 0.3s"}}>
-                <div style={{width:44,height:44,borderRadius:"50%",flexShrink:0,background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#111",fontFamily:"'JetBrains Mono',monospace"}}>{emp.avatar}</div>
-                <div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:700,color:"#e8f4f8"}}>{emp.name}</div><div style={{fontSize:11,color:col,marginTop:2}}>{emp.role}</div></div>
-                <div style={{textAlign:"right",minWidth:120}}>
-                  {isIn?(
-                    <div><div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:20,fontWeight:700,color:"#06d6a0",letterSpacing:"0.04em",lineHeight:1}}>{fmtElapsed(elapsed)}</div></div>
-                  ):(
-                    <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end"}}><div style={{background:"#06d6a0",color:"#0d1117",fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:6,fontFamily:"'JetBrains Mono',monospace"}}>CLOCK IN</div></div>
+                className={`flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl cursor-pointer text-left w-full transition-all duration-300 border-[1.5px] ${isIn ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
+                <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                  <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
+                </div>
+                <div className="text-right min-w-[120px]">
+                  {isIn ? (
+                    <div><div className="font-mono text-[20px] font-bold text-[#06d6a0] tracking-[0.04em] leading-none">{fmtElapsed(elapsed)}</div></div>
+                  ) : (
+                    <div className="flex items-center gap-2 justify-end"><div className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono">CLOCK IN</div></div>
                   )}
                 </div>
               </button>
@@ -228,11 +231,11 @@ useEffect(() => {
     const isIn=!!clockedIn[authEmp.id]
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
     return (
-      <div style={{fontFamily:"'Bitter',Georgia,serif",background:"#0d1117",minHeight:"100vh",color:"#e8e8e8",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-        <div style={{width:"100%",maxWidth:340}}>
-          <div style={{textAlign:"center",marginBottom:28}}>
-            <div style={{width:64,height:64,borderRadius:"50%",margin:"0 auto 14px",background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#111",fontFamily:"'JetBrains Mono',monospace"}}>{authEmp.avatar}</div>
-            <div style={{fontSize:18,fontWeight:700,color:"#e8f4f8"}}>{authEmp.name}</div>
+      <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
+        <div className="w-full max-w-[340px]">
+          <div className="text-center mb-7">
+            <div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{authEmp.avatar}</div>
+            <div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div>
           </div>
           {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label="YOUR PIN" onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
         </div>
@@ -241,47 +244,49 @@ useEffect(() => {
   }
 
   if(screen==="manager-login") return (
-    <div style={{fontFamily:"'Bitter',Georgia,serif",background:"#0d1117",minHeight:"100vh",color:"#e8e8e8",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{width:"100%",maxWidth:340}}><ManagerLogin onSuccess={sess=>{setMgrSession(sess);setScreen("manager-dashboard");setMgrTab("employees")}} onCancel={()=>setScreen("kiosk")}/></div>
+    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
+      <div className="w-full max-w-[340px]">
+        <ManagerLogin onSuccess={sess=>{setMgrSession(sess);setScreen("manager-dashboard");setMgrTab("employees")}} onCancel={()=>setScreen("kiosk")}/>
+      </div>
     </div>
   )
 
   if(screen==="manager-dashboard"&&managerSession) return (
-    <div style={{fontFamily:"'Bitter',Georgia,serif",background:"#0d1117",minHeight:"100vh",color:"#e8e8e8",maxWidth:1020,margin:"0 auto",paddingBottom:60}}>
+    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[1020px] mx-auto pb-15">
       {showAddEmp&&<EmployeeForm title="Add Employee" saveLabel="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
       {editEmp&&<EmployeeForm title="Edit Employee" saveLabel="Save Changes" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
       
-      <div style={{padding:"22px 30px 0",borderBottom:"1px solid #1a2535"}}>
-        <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:16}}>
-          <div><h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#e8f4f8"}}>Manager Dashboard</h1></div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setScreen("kiosk")} style={{background:"none",border:"1px solid #1e2a38",color:"#4a6a8a",padding:"6px 12px",borderRadius:6,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace",fontSize:10}}>Kiosk</button>
+      <div className="px-7 pt-5 border-b border-[#1a2535]">
+        <div className="flex items-end justify-between mb-4">
+          <div><h1 className="m-0 text-[22px] font-bold text-[#e8f4f8]">Manager Dashboard</h1></div>
+          <div className="flex gap-2">
+            <button onClick={()=>setScreen("kiosk")} className="bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3 rounded-md cursor-pointer font-mono text-[10px]">Kiosk</button>
           </div>
         </div>
-        <div style={{display:"flex"}}>
+        <div className="flex">
           <button style={managerTab==="employees"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("employees")}>Employees</button>
         </div>
       </div>
       
-      <div style={{padding:"26px 30px"}}>
+      <div className="px-7 py-6">
         {managerTab==="employees"&&(
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-              <div><div style={{fontSize:14,fontWeight:600,color:"#e8f4f8"}}>Employee Roster</div></div>
-              <button onClick={()=>setShowAddEmp(true)} style={{background:"#7ec8e3",border:"none",color:"#0d1117",padding:"10px 20px",borderRadius:8,cursor:"pointer",fontFamily:"'Bitter',serif",fontSize:13,fontWeight:700}}>Add Employee</button>
+            <div className="flex justify-between items-center mb-4.5">
+              <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Employee Roster</div></div>
+              <button onClick={()=>setShowAddEmp(true)} className="bg-[#7ec8e3] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold">Add Employee</button>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:9}}>
+            <div className="flex flex-col gap-2.5">
               {employees.map(emp=>{
                 const col=ROLE_COLORS[emp.role]||"#555"
                 return (
-                  <div key={emp.id} style={statBoxStyle}>
-                    <div style={{display:"flex",alignItems:"center",gap:14}}>
-                      <div style={{width:40,height:40,borderRadius:"50%",background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#111",fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{emp.avatar}</div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:700,color:"#e8f4f8",display:"flex",alignItems:"center",gap:8}}>{emp.name}</div>
-                        <div style={{fontSize:11,color:col,marginTop:2}}>{emp.role}</div>
+                  <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3.5">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+                      <div className="flex-1">
+                        <div className="text-[13px] font-bold text-[#e8f4f8] flex items-center gap-2">{emp.name}</div>
+                        <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
                       </div>
-                      <button onClick={()=>setEditEmp(emp)} style={{background:"#1a2a3a",border:"1px solid #2a4060",color:"#7ec8e3",width:36,height:36,borderRadius:8,cursor:"pointer",fontSize:15,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}} title="Edit">EDIT</button>
+                      <button onClick={()=>setEditEmp(emp)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-9 h-9 rounded-lg cursor-pointer text-[15px] shrink-0 flex items-center justify-center" title="Edit">EDIT</button>
                     </div>
                   </div>
                 )
