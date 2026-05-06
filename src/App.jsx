@@ -174,18 +174,27 @@ useEffect(() => {
   const isAdmin = managerSession?.userRole === "admin"
 
   if(screen==="kiosk") return (
-    <div style={{fontFamily:"'Bitter',Georgia,serif",background:"#0d1117",minHeight:"100vh",color:"#e8e8e8",maxWidth:780,margin:"0 auto",paddingBottom:40}}>
-      <div style={{padding:"22px 28px 0",borderBottom:"1px solid #1a2535",marginBottom:24}}>
-        <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:16}}>
-          <div><div style={{fontSize:10,color:"#4a6a8a",letterSpacing:"0.2em",textTransform:"uppercase",fontFamily:"'JetBrains Mono',monospace",marginBottom:3}}>Pine Lake Recreation</div><h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#e8f4f8"}}>Time Clock Kiosk</h1></div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:26,fontWeight:600,color:"#7ec8e3"}}>{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div>
-            <div style={{fontSize:11,color:"#4a6a8a",marginTop:1}}>{now.toLocaleDateString([],{weekday:"long",month:"short",day:"numeric"})}</div>
+    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
+      <div className="px-7 pt-5 border-b border-[#1a2535] mb-6">
+        <div className="flex items-end justify-between mb-4">
+          <div>
+            <div className="text-[10px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div>
+            <h1 className="text-[22px] font-bold text-[#e8f4f8] m-0 leading-none">Time Clock Kiosk</h1>
+          </div>
+          <div className="text-right">
+            <div className="font-mono text-[26px] font-semibold text-[#7ec8e3] leading-none">
+              {now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
+            </div>
+            <div className="text-[11px] text-[#4a6a8a] mt-1">
+              {now.toLocaleDateString([],{weekday:"long",month:"short",day:"numeric"})}
+            </div>
           </div>
         </div>
-        <div style={{display:"flex",gap:20,paddingBottom:14,alignItems:"center"}}>
-          <div style={{fontSize:11,color:"#4a6a8a",fontFamily:"'JetBrains Mono',monospace"}}><span style={{color:"#06d6a0",fontWeight:700}}>{Object.keys(clockedIn).length}</span> clocked in total {employees.length}</div>
-          <button onClick={()=>setScreen("manager-login")} style={{marginLeft:"auto",background:"none",border:"1px solid #1e2a38",color:"#4a6a8a",padding:"5px 14px",borderRadius:6,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace",fontSize:10}}>Manager</button>
+        <div className="flex gap-5 pb-3.5 items-center">
+          <div className="text-[11px] text-[#4a6a8a] font-mono">
+            <span className="text-[#06d6a0] font-bold">{Object.keys(clockedIn).length}</span> clocked in total {employees.length}
+          </div>
+          <button onClick={()=>setScreen("manager-login")} className="ml-auto bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Manager</button>
         </div>
       </div>
       <div style={{padding:"0 28px"}}>
