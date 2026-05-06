@@ -6,7 +6,6 @@ import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/For
 export default function PineLakeApp() {
   const [employees,setEmployees] = useState([])
   const [schedules,setSchedules] = useState({})
-  const [weekStatus,setWeekStatus] = useState({})
   const [clockedIn,setClockedIn] = useState({})
   const [clockLog,setClockLog] = useState([])
   const [screen,setScreen] = useState("kiosk")
@@ -15,7 +14,6 @@ export default function PineLakeApp() {
   const [managerTab,setMgrTab] = useState("clock")
   const [showAddEmp,setShowAddEmp] = useState(false)
   const [editEmp,setEditEmp] = useState(null)
-  const [payEmp,setPayEmp] = useState(null)
   const [now,setNow] = useState(new Date())
 
   const [weekIdx,setWeekIdx] = useState(0)
@@ -24,10 +22,6 @@ export default function PineLakeApp() {
     const iv=setInterval(()=>setNow(new Date()),1000)
     return ()=>clearInterval(iv)
   },[])
-
-  useEffect(()=>{
-    if(employees.length&&!payEmp) setPayEmp(employees[0])
-  },[employees])
 
   useEffect(()=>{
     async function loadData() {
@@ -111,9 +105,6 @@ export default function PineLakeApp() {
     }
   }, [employees])
 
-  const wk = weekKey(weekIdx)
-  const currentSchedule = schedules[wk] || blankWeek(employees)
-
   function getElapsed(empId){
     const ts=clockedIn[empId]
     if(!ts) return 0
@@ -158,20 +149,6 @@ export default function PineLakeApp() {
     doClockAction(emp)
     setTimeout(()=>setScreen("kiosk"),800)
   }
-
-  function empCost(emp) {
-    const histH = HIST_HOURS[emp.id] || 0
-    const liveH = getElapsed(emp.id) / 3600
-    const totalH = histH + liveH
-    const regH = Math.min(totalH, 40)
-    const otH = Math.max(0, totalH - 40)
-    const otRate = multiply(emp.baseRate, 1.5)
-    const gross = multiply(regH, emp.baseRate) + multiply(otH, otRate)
-    const employer = multiply(gross, 0.0765) + multiply(gross, 0.006) + multiply(gross, 0.027)
-    return {histH, liveH, totalH, regH, otH, gross, employer, total: gross + employer}
-  }
-
-  const isAdmin = managerSession?.userRole === "admin"
 
   if(screen==="kiosk") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
