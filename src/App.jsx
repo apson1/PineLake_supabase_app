@@ -77,6 +77,40 @@ export default function PineLakeApp() {
     loadData()
   },[])
 
+useEffect(() => {
+  if (employees.length === 0) return
+
+  const channel = supabase
+    .channel('live-clock')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'clock_logs' },
+      (payload) => {
+        const log = payload.new
+        const emp = employees.find(e => e.id === log.employee_id)
+        if (!emp) return
+
+        setClockedIn(prev => {
+          const next = { ...prev }
+          if (log.action === 'IN') {
+            next[emp.id] = new Date(log.created_at).getTime()
+          } else {
+            delete next[emp.id]
+          }
+          return next
+        })
+
+        const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
+      }
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [employees])
+
   const wk = weekKey(weekIdx)
   const currentSchedule = schedules[wk] || blankWeek(employees)
 

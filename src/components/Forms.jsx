@@ -3,10 +3,10 @@ import { labelStyle, inputStyle, btnGhost, multiply, multiply3, WORK_ROLES, MANA
 
 export function Field({ label, error, children }) {
   return (
-    <div style={{marginBottom:16}}>
-      {label && <label style={labelStyle}>{label}</label>}
+    <div className="mb-4">
+      {label && <label className="block mb-1.5 text-[10px] text-slate-400 tracking-[0.12em] uppercase font-mono">{label}</label>}
       {children}
-      {error && <div style={{fontSize:11,color:"#ef476f",marginTop:4}}>{error}</div>}
+      {error && <div className="mt-1 text-[11px] text-rose-500">{error}</div>}
     </div>
   )
 }
