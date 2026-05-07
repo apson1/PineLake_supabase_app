@@ -21,13 +21,16 @@ export default function PineLakeApp() {
 
   const [weekIdx,setWeekIdx] = useState(0)
 
+  // Real-time clock tick
   useEffect(()=>{
     const iv=setInterval(()=>setNow(new Date()),1000)
     return ()=>clearInterval(iv)
   },[])
 
+  // Initial Data Load
   useEffect(()=>{
     async function loadData() {
+      // 1. Load Employees
       const { data: empData } = await supabase.from("employees").select("id, name, role, base_rate, bonus_rate, pin, auth_method, avatar").order("id")
       if (empData) {
         const mappedEmps = empData.map(e => ({
@@ -37,6 +40,7 @@ export default function PineLakeApp() {
         setEmployees(mappedEmps)
       }
 
+      // 2. Load Clock Logs
       const { data: logs } = await supabase.from("clock_logs").select("id, employee_id, action, created_at").order("created_at", { ascending: false })
       if (logs && empData) {
         setAllLogs(logs)
@@ -63,6 +67,7 @@ export default function PineLakeApp() {
         setClockLog(rLogs)
       }
 
+      // 3. Load Schedules
       const { data: schedData } = await supabase.from("schedules").select("id, week_key, day, employee_id, shift_time")
       if (schedData && empData) {
         const mappedSchedules = {}
@@ -77,6 +82,7 @@ export default function PineLakeApp() {
     loadData()
   },[])
 
+  // Real-time Database Subscription
   useEffect(() => {
     if (employees.length === 0) return
 
@@ -121,6 +127,7 @@ export default function PineLakeApp() {
     return Math.floor((Date.now()-rec.time)/1000)
   }
 
+  // Schedule Enforcement Check
   function checkCanClockIn(emp) {
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     const todayName = days[new Date().getDay()]
@@ -159,6 +166,7 @@ export default function PineLakeApp() {
     return true
   }
 
+  // Calculate timesheets minus breaks
   function getTimesheetSummary() {
     const summary = {}
     employees.forEach(emp => {
@@ -213,7 +221,7 @@ export default function PineLakeApp() {
     if (!error) {
       alert("Payroll successfully locked into history")
     } else {
-      alert("Error saving payroll")
+      alert("Error saving payroll: " + error.message)
     }
   }
 
@@ -296,11 +304,11 @@ export default function PineLakeApp() {
       }
     }
 
-    const { error } = await supabase.from("schedules").upsert(recordsToUpsert, { onConflict: "week_key, day, employee_id" })
+    const { error } = await supabase.from("schedules").upsert(recordsToUpsert, { onConflict: "week_key,day,employee_id" })
     if (!error) {
       alert("Schedule saved successfully")
     } else {
-      alert("Error saving schedule data")
+      alert("Error saving schedule data: " + error.message)
     }
   }
 
@@ -414,19 +422,37 @@ export default function PineLakeApp() {
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
     const actionLabel = pendingAction ? pendingAction.replace("_", " ") : "AUTHENTICATE"
     
-    const wk = weekKey(weekIdx)
-    const todayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date().getDay()]
-    const todayShift = schedules[wk]?.[todayName]?.[authEmp.id] || "Not Scheduled"
+    const currentWk = schedules[weekKey(0)] || {}
 
     return (
       <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
         <div className="w-full max-w-[340px]">
-          <div className="text-center mb-7">
+          <div className="text-center mb-5">
             <div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{authEmp.avatar}</div>
             <div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div>
-            <div className="text-[12px] text-[#4a6a8a] mt-1 font-mono">Today Shift: <span className="text-[#e8f4f8]">{todayShift}</span></div>
-            <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest mt-3 uppercase">CONFIRM {actionLabel}</div>
           </div>
+          
+          <div className="grid grid-cols-7 gap-1 mt-4 mb-6 bg-[#131b27] p-2 rounded-lg border border-[#1e2a38]">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day, i) => {
+              const fullDay = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]
+              let shift = currentWk[fullDay]?.[authEmp.id] || "OFF"
+              if (shift.toUpperCase() === "OFF" || shift === "") shift = "-"
+              else shift = shift.split("-")[0].trim().replace(":00", "")
+              
+              const isToday = new Date().getDay() === i
+              return (
+                <div key={day} className={`flex flex-col items-center ${isToday ? "bg-[#1e2a38] rounded py-1 border border-[#2a4060]" : "py-1"}`}>
+                  <div className="text-[9px] text-[#4a6a8a] font-mono uppercase">{day}</div>
+                  <div className="text-[9px] text-[#e8f4f8] font-mono mt-1 font-bold">{shift}</div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="text-center mb-4">
+            <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest uppercase">CONFIRM {actionLabel}</div>
+          </div>
+          
           {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label={`PIN TO ${actionLabel}`} onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
         </div>
       </div>
@@ -465,7 +491,14 @@ export default function PineLakeApp() {
         {managerTab==="schedules"&&(
           <div>
             <div className="flex justify-between items-center mb-4.5">
-              <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Schedule Builder</div></div>
+              <div className="flex items-center gap-4">
+                <div className="text-[14px] font-semibold text-[#e8f4f8]">Schedule Builder</div>
+                <div className="flex gap-2 items-center ml-4 border-l border-[#1e2a38] pl-4">
+                  <button onClick={() => setWeekIdx(p => p - 1)} className="bg-[#1e2a38] text-[#7ec8e3] py-1 px-2.5 rounded text-[11px] font-mono hover:bg-[#2a4060]">Prev Week</button>
+                  <div className="text-[11px] text-[#4a6a8a] font-mono w-24 text-center">Offset: {weekIdx === 0 ? "Current" : weekIdx > 0 ? `+${weekIdx}` : weekIdx}</div>
+                  <button onClick={() => setWeekIdx(p => p + 1)} className="bg-[#1e2a38] text-[#7ec8e3] py-1 px-2.5 rounded text-[11px] font-mono hover:bg-[#2a4060]">Next Week</button>
+                </div>
+              </div>
               <button onClick={handleSaveScheduleGrid} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Save Schedule</button>
             </div>
             <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 overflow-x-auto">
