@@ -4,6 +4,45 @@ import { ROLE_COLORS, HIST_HOURS, multiply, blankWeek, weekKey, fmtElapsed, tabB
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
 import * as XLSX from "xlsx"
 
+// Utility to ensure week keys are strictly based on Sunday dates
+function getSundayKey(dateStr) {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() - d.getDay())
+  return d.toISOString().split('T')[0]
+}
+
+// Utility to parse mixed formats into native 24h inputs (HH:MM)
+function parseTo24h(timeStr) {
+  if (!timeStr) return "09:00"
+  timeStr = timeStr.trim()
+  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM|am|pm)?/)
+  if (match) {
+    let [_, h, m, ampm] = match
+    h = parseInt(h, 10)
+    if (ampm && ampm.toUpperCase() === "PM" && h < 12) h += 12
+    if (ampm && ampm.toUpperCase() === "AM" && h === 12) h = 0
+    return `${h.toString().padStart(2, '0')}:${m}`
+  }
+  return "09:00"
+}
+
+// Utility to format 24h back to human readable 12h for display
+function formatShiftDisplay(shiftStr) {
+  if (!shiftStr || shiftStr.toUpperCase() === "OFF") return "OFF"
+  const parts = shiftStr.split("-")
+  if (parts.length !== 2) return shiftStr
+  
+  const formatTime = (t) => {
+    let [h, m] = t.trim().split(":")
+    if (!h || !m) return t
+    h = parseInt(h, 10)
+    const ampm = h >= 12 ? "PM" : "AM"
+    h = h % 12 || 12
+    return `${h}:${m} ${ampm}`
+  }
+  return `${formatTime(parts[0])} - ${formatTime(parts[1])}`
+}
+
 export default function PineLakeApp() {
   const [employees,setEmployees] = useState([])
   const [schedules,setSchedules] = useState({})
@@ -20,7 +59,9 @@ export default function PineLakeApp() {
   const [editEmp,setEditEmp] = useState(null)
   const [now,setNow] = useState(new Date())
 
-  const [weekIdx,setWeekIdx] = useState(0)
+  // NEW: Date-based week selection
+  const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
+  const activeWeekKey = getSundayKey(targetDate)
 
   useEffect(()=>{
     const iv=setInterval(()=>setNow(new Date()),1000)
@@ -125,12 +166,12 @@ export default function PineLakeApp() {
   function checkCanClockIn(emp) {
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     const todayName = days[new Date().getDay()]
-    const wk = weekKey(0) 
+    const wk = getSundayKey(new Date().toISOString().split('T')[0])
     
     const currentSchedule = schedules[wk]
     const shiftString = currentSchedule?.[todayName]?.[emp.id]
     
-    if (!shiftString || shiftString.trim() === "" || shiftString.toLowerCase() === "off") {
+    if (!shiftString || shiftString.trim() === "" || shiftString.toUpperCase() === "OFF") {
       alert(`Schedule Block: ${emp.name} is not scheduled to work today.`)
       return false
     }
@@ -152,7 +193,7 @@ export default function PineLakeApp() {
       const diffMinutes = (shiftStart.getTime() - Date.now()) / 60000
       
       if (diffMinutes > 15) {
-        alert(`Schedule Block: Too early. Your shift starts at ${startStr}. You can clock in 15 minutes before.`)
+        alert(`Schedule Block: Too early. Your shift starts at ${formatShiftDisplay(shiftString).split('-')[0].trim()}. You can clock in 15 minutes before.`)
         return false
       }
     }
@@ -269,26 +310,24 @@ export default function PineLakeApp() {
   }
 
   function updateScheduleCell(day, empId, value) {
-    const wk = weekKey(weekIdx)
     setSchedules(prev => {
       const next = { ...prev }
-      if (!next[wk]) next[wk] = {}
-      if (!next[wk][day]) next[wk][day] = {}
-      next[wk][day][empId] = value
+      if (!next[activeWeekKey]) next[activeWeekKey] = {}
+      if (!next[activeWeekKey][day]) next[activeWeekKey][day] = {}
+      next[activeWeekKey][day][empId] = value
       return next
     })
   }
 
   async function handleSaveScheduleGrid() {
-    const wk = weekKey(weekIdx)
-    const currentGrid = schedules[wk] || {}
+    const currentGrid = schedules[activeWeekKey] || {}
     const recordsToUpsert = []
     
     for (const day of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]) {
       for (const emp of employees) {
         const shift = currentGrid[day]?.[emp.id] || ""
         recordsToUpsert.push({
-          week_key: wk,
+          week_key: activeWeekKey,
           day: day,
           employee_id: emp.id,
           shift_time: shift
@@ -416,7 +455,7 @@ export default function PineLakeApp() {
   if(screen==="emp-auth"&&authEmp){
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
     const actionLabel = pendingAction ? pendingAction.replace("_", " ") : "AUTHENTICATE"
-    const currentWk = schedules[weekKey(0)] || {}
+    const currentWk = schedules[getSundayKey(new Date().toISOString().split('T')[0])] || {}
 
     return (
       <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
@@ -430,14 +469,14 @@ export default function PineLakeApp() {
             {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day, i) => {
               const fullDay = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]
               let shift = currentWk[fullDay]?.[authEmp.id] || "OFF"
-              if (shift.toUpperCase() === "OFF" || shift === "") shift = "-"
-              else shift = shift.split("-")[0].trim().replace(":00", "")
+              const displayShift = formatShiftDisplay(shift)
+              const shortShift = displayShift === "OFF" ? "-" : displayShift.split("-")[0].replace(":00", "").trim()
               
               const isToday = new Date().getDay() === i
               return (
                 <div key={day} className={`flex flex-col items-center ${isToday ? "bg-[#1e2a38] rounded py-1 border border-[#2a4060]" : "py-1"}`}>
                   <div className="text-[9px] text-[#4a6a8a] font-mono uppercase">{day}</div>
-                  <div className="text-[9px] text-[#e8f4f8] font-mono mt-1 font-bold">{shift}</div>
+                  <div className="text-[9px] text-[#e8f4f8] font-mono mt-1 font-bold text-center leading-tight">{shortShift}</div>
                 </div>
               )
             })}
@@ -493,7 +532,7 @@ export default function PineLakeApp() {
 
   if(screen==="portal-dashboard"&&portalEmp) {
     const stats = timesheets[portalEmp.id] || { hours: "0.00", pay: "0.00" }
-    const currentWk = schedules[weekKey(0)] || {}
+    const currentWk = schedules[getSundayKey(new Date().toISOString().split('T')[0])] || {}
     
     return (
       <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
@@ -525,12 +564,13 @@ export default function PineLakeApp() {
             <div className="flex flex-col gap-3">
               <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest uppercase border-b border-[#1a2535] pb-2">This Week</div>
               {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day, i) => {
-                const shift = currentWk[day]?.[portalEmp.id] || "OFF"
+                const shiftStr = currentWk[day]?.[portalEmp.id] || "OFF"
+                const displayShift = formatShiftDisplay(shiftStr)
                 const isToday = new Date().getDay() === i
                 return (
                   <div key={day} className={`flex justify-between items-center ${isToday ? "bg-[#1e2a38] -mx-2 px-2 py-1.5 rounded border border-[#2a4060]" : ""}`}>
                     <div className={`text-[13px] ${isToday ? "text-[#7ec8e3] font-bold" : "text-[#a0b0c0]"}`}>{day}</div>
-                    <div className={`text-[13px] font-mono ${shift === "OFF" || shift === "" ? "text-[#4a6a8a]" : "text-[#e8f4f8]"}`}>{shift === "" ? "OFF" : shift}</div>
+                    <div className={`text-[13px] font-mono ${displayShift === "OFF" ? "text-[#4a6a8a]" : "text-[#e8f4f8]"}`}>{displayShift}</div>
                   </div>
                 )
               })}
@@ -575,16 +615,21 @@ export default function PineLakeApp() {
             <div className="flex justify-between items-center mb-4.5">
               <div className="flex items-center gap-4">
                 <div className="text-[14px] font-semibold text-[#e8f4f8]">Schedule Builder</div>
-                <div className="flex gap-2 items-center ml-4 border-l border-[#1e2a38] pl-4">
-                  <button onClick={() => setWeekIdx(p => p - 1)} className="bg-[#1e2a38] text-[#7ec8e3] py-1 px-2.5 rounded text-[11px] font-mono hover:bg-[#2a4060]">Prev Week</button>
-                  <div className="text-[11px] text-[#4a6a8a] font-mono w-24 text-center">Offset: {weekIdx === 0 ? "Current" : weekIdx > 0 ? `+${weekIdx}` : weekIdx}</div>
-                  <button onClick={() => setWeekIdx(p => p + 1)} className="bg-[#1e2a38] text-[#7ec8e3] py-1 px-2.5 rounded text-[11px] font-mono hover:bg-[#2a4060]">Next Week</button>
+                <div className="flex gap-3 items-center ml-4 border-l border-[#1e2a38] pl-4">
+                  <label className="text-[11px] text-[#4a6a8a] font-mono">Select Week:</label>
+                  <input 
+                    type="date" 
+                    value={targetDate} 
+                    onChange={(e) => setTargetDate(e.target.value)}
+                    className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded py-1 px-2 text-[12px] font-mono focus:outline-none focus:border-[#7ec8e3]"
+                    style={{colorScheme: "dark"}}
+                  />
                 </div>
               </div>
               <button onClick={handleSaveScheduleGrid} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Save Schedule</button>
             </div>
             <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[700px]">
+              <table className="w-full text-left border-collapse min-w-[900px]">
                 <thead>
                   <tr>
                     <th className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider">EMPLOYEE</th>
@@ -593,19 +638,50 @@ export default function PineLakeApp() {
                 </thead>
                 <tbody>
                   {employees.map(emp => (
-                    <tr key={emp.id} className="border-b border-[#1a2535] last:border-0">
+                    <tr key={emp.id} className="border-b border-[#1a2535] last:border-0 hover:bg-[#1a2535]">
                       <td className="p-2.5 text-[13px] font-bold text-[#e8f4f8] whitespace-nowrap">{emp.name}</td>
-                      {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => (
-                        <td key={day} className="p-1.5">
-                          <input
-                            type="text"
-                            value={schedules[weekKey(weekIdx)]?.[day]?.[emp.id] || ""}
-                            onChange={(e) => updateScheduleCell(day, emp.id, e.target.value)}
-                            className="bg-[#0d1117] border border-[#2a4060] rounded w-full p-2 text-[11px] text-[#e8f4f8] font-mono focus:border-[#7ec8e3] focus:outline-none transition-colors"
-                            placeholder="OFF"
-                          />
+                      {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => {
+                        const shiftStr = schedules[activeWeekKey]?.[day]?.[emp.id] || "OFF"
+                        const isOff = shiftStr.toUpperCase() === "OFF" || shiftStr === ""
+                        
+                        const parts = shiftStr.split("-")
+                        const start24 = isOff ? "09:00" : parseTo24h(parts[0])
+                        const end24 = isOff ? "17:00" : parseTo24h(parts[1])
+
+                        return (
+                        <td key={day} className="p-1.5 align-top w-[140px]">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex justify-between items-center px-1">
+                              <span className="text-[9px] text-[#4a6a8a] uppercase font-mono">Status</span>
+                              <button onClick={() => updateScheduleCell(day, emp.id, isOff ? "09:00-17:00" : "OFF")} className="text-[9px] text-[#7ec8e3] hover:text-[#e8f4f8] font-mono cursor-pointer border-none bg-transparent p-0">
+                                {isOff ? "Set Time" : "Set OFF"}
+                              </button>
+                            </div>
+                            
+                            {isOff ? (
+                              <div className="bg-[#1f1a0d] border border-[#fca311] text-[#fca311] text-center text-[12px] font-bold py-2 rounded font-mono tracking-widest">OFF</div>
+                            ) : (
+                              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#2a4060] rounded p-1">
+                                <input
+                                  type="time"
+                                  value={start24}
+                                  onChange={(e) => updateScheduleCell(day, emp.id, `${e.target.value}-${end24}`)}
+                                  className="bg-transparent border-none w-full text-[11px] text-[#e8f4f8] font-mono focus:outline-none p-0 text-center"
+                                  style={{colorScheme: "dark"}}
+                                />
+                                <span className="text-[#4a6a8a] text-[10px]">-</span>
+                                <input
+                                  type="time"
+                                  value={end24}
+                                  onChange={(e) => updateScheduleCell(day, emp.id, `${start24}-${e.target.value}`)}
+                                  className="bg-transparent border-none w-full text-[11px] text-[#e8f4f8] font-mono focus:outline-none p-0 text-center"
+                                  style={{colorScheme: "dark"}}
+                                />
+                              </div>
+                            )}
+                          </div>
                         </td>
-                      ))}
+                      )})}
                     </tr>
                   ))}
                 </tbody>
