@@ -12,6 +12,7 @@ export default function PineLakeApp() {
   const [allLogs, setAllLogs] = useState([])
   const [screen,setScreen] = useState("kiosk")
   const [authEmp,setAuthEmp] = useState(null)
+  const [portalEmp,setPortalEmp] = useState(null) // NEW: Tracks who is logged into the portal
   const [pendingAction, setPendingAction] = useState(null)
   const [managerSession,setMgrSession] = useState(null)
   const [managerTab,setMgrTab] = useState("employees")
@@ -21,16 +22,13 @@ export default function PineLakeApp() {
 
   const [weekIdx,setWeekIdx] = useState(0)
 
-  // Real-time clock tick
   useEffect(()=>{
     const iv=setInterval(()=>setNow(new Date()),1000)
     return ()=>clearInterval(iv)
   },[])
 
-  // Initial Data Load
   useEffect(()=>{
     async function loadData() {
-      // 1. Load Employees
       const { data: empData } = await supabase.from("employees").select("id, name, role, base_rate, bonus_rate, pin, auth_method, avatar").order("id")
       if (empData) {
         const mappedEmps = empData.map(e => ({
@@ -40,7 +38,6 @@ export default function PineLakeApp() {
         setEmployees(mappedEmps)
       }
 
-      // 2. Load Clock Logs
       const { data: logs } = await supabase.from("clock_logs").select("id, employee_id, action, created_at").order("created_at", { ascending: false })
       if (logs && empData) {
         setAllLogs(logs)
@@ -67,7 +64,6 @@ export default function PineLakeApp() {
         setClockLog(rLogs)
       }
 
-      // 3. Load Schedules
       const { data: schedData } = await supabase.from("schedules").select("id, week_key, day, employee_id, shift_time")
       if (schedData && empData) {
         const mappedSchedules = {}
@@ -82,7 +78,6 @@ export default function PineLakeApp() {
     loadData()
   },[])
 
-  // Real-time Database Subscription
   useEffect(() => {
     if (employees.length === 0) return
 
@@ -127,7 +122,6 @@ export default function PineLakeApp() {
     return Math.floor((Date.now()-rec.time)/1000)
   }
 
-  // Schedule Enforcement Check
   function checkCanClockIn(emp) {
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     const todayName = days[new Date().getDay()]
@@ -162,11 +156,9 @@ export default function PineLakeApp() {
         return false
       }
     }
-    
     return true
   }
 
-  // Calculate timesheets minus breaks
   function getTimesheetSummary() {
     const summary = {}
     employees.forEach(emp => {
@@ -340,6 +332,9 @@ export default function PineLakeApp() {
 
   const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN").length
 
+  // ==========================================
+  // KIOSK SCREEN
+  // ==========================================
   if(screen==="kiosk") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
       <div className="px-7 pt-5 border-b border-[#1a2535] mb-6">
@@ -361,7 +356,10 @@ export default function PineLakeApp() {
           <div className="text-[11px] text-[#4a6a8a] font-mono">
             <span className="text-[#06d6a0] font-bold">{activeWorkers}</span> active on clock | {employees.length} total staff
           </div>
-          <button onClick={()=>setScreen("manager-login")} className="ml-auto bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Manager</button>
+          <div className="ml-auto flex gap-2">
+            <button onClick={()=>setScreen("portal-select")} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Employee Portal</button>
+            <button onClick={()=>setScreen("manager-login")} className="bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Manager</button>
+          </div>
         </div>
       </div>
       <div className="px-7">
@@ -418,10 +416,12 @@ export default function PineLakeApp() {
     </div>
   )
 
+  // ==========================================
+  // EMPLOYEE AUTH (CLOCK IN/OUT)
+  // ==========================================
   if(screen==="emp-auth"&&authEmp){
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
     const actionLabel = pendingAction ? pendingAction.replace("_", " ") : "AUTHENTICATE"
-    
     const currentWk = schedules[weekKey(0)] || {}
 
     return (
@@ -452,13 +452,110 @@ export default function PineLakeApp() {
           <div className="text-center mb-4">
             <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest uppercase">CONFIRM {actionLabel}</div>
           </div>
-          
           {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label={`PIN TO ${actionLabel}`} onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
         </div>
       </div>
     )
   }
 
+  // ==========================================
+  // EMPLOYEE PORTAL (SELECT & LOGIN)
+  // ==========================================
+  if(screen==="portal-select") return (
+    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
+      <div className="px-7 pt-5 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center">
+        <h1 className="text-[22px] font-bold text-[#e8f4f8] m-0">Select Your Profile</h1>
+        <button onClick={()=>setScreen("kiosk")} className="text-[#4a6a8a] font-mono text-[10px] hover:text-[#e8e8e8]">Back to Kiosk</button>
+      </div>
+      <div className="px-7 flex flex-col gap-2.5">
+        {employees.map(emp=>{
+           const col = ROLE_COLORS[emp.role]||"#7ec8e3"
+           return (
+             <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("portal-auth")}} className="flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl cursor-pointer text-left w-full bg-[#131b27] border-[1.5px] border-[#1e2a38] hover:border-[#2a4060]">
+               <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+               <div className="flex-1">
+                 <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                 <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
+               </div>
+             </button>
+           )
+        })}
+      </div>
+    </div>
+  )
+
+  if(screen==="portal-auth"&&authEmp){
+    const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
+    return (
+      <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
+        <div className="w-full max-w-[340px]">
+          <div className="text-center mb-7">
+            <div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{authEmp.avatar}</div>
+            <div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div>
+            <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest mt-1.5 uppercase">PORTAL ACCESS</div>
+          </div>
+          {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>{setPortalEmp(authEmp); setScreen("portal-dashboard")}} onCancel={()=>setScreen("portal-select")}/>:<PinPad correctPin={authEmp.pin} label="PIN FOR PORTAL" onSuccess={()=>{setPortalEmp(authEmp); setScreen("portal-dashboard")}} onCancel={()=>setScreen("portal-select")}/>}
+        </div>
+      </div>
+    )
+  }
+
+  // ==========================================
+  // EMPLOYEE PORTAL (PERSONAL DASHBOARD)
+  // ==========================================
+  if(screen==="portal-dashboard"&&portalEmp) {
+    const stats = timesheets[portalEmp.id] || { hours: "0.00", pay: "0.00" }
+    const currentWk = schedules[weekKey(0)] || {}
+    
+    return (
+      <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
+        <div className="px-7 pt-5 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center">
+           <div>
+             <div className="text-[10px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Employee Portal</div>
+             <h1 className="text-[22px] font-bold text-[#e8f4f8] m-0">Welcome, {portalEmp.name.split(" ")[0]}</h1>
+           </div>
+           <button onClick={()=>{setPortalEmp(null); setScreen("kiosk")}} className="bg-[#1e2a38] border border-[#2a4060] text-[#e8e8e8] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#ef476f] hover:border-[#ef476f] transition-colors">Log Out</button>
+        </div>
+        
+        <div className="px-7 flex flex-col gap-6">
+          <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 shadow-lg">
+            <div className="text-[14px] font-semibold text-[#e8f4f8] mb-4">Current Week Summary</div>
+            <div className="flex justify-between items-end">
+              <div>
+                <div className="text-[32px] font-mono font-bold text-[#06d6a0] leading-none">{stats.hours}</div>
+                <div className="text-[11px] text-[#4a6a8a] mt-1.5 font-mono uppercase">Total Hours</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[22px] font-mono font-bold text-[#e8f4f8] leading-none">${stats.pay}</div>
+                <div className="text-[11px] text-[#4a6a8a] mt-1.5 font-mono uppercase">Est. Gross Pay</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 shadow-lg">
+            <div className="text-[14px] font-semibold text-[#e8f4f8] mb-4">My Schedule</div>
+            <div className="flex flex-col gap-3">
+              <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest uppercase border-b border-[#1a2535] pb-2">This Week</div>
+              {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day, i) => {
+                const shift = currentWk[day]?.[portalEmp.id] || "OFF"
+                const isToday = new Date().getDay() === i
+                return (
+                  <div key={day} className={`flex justify-between items-center ${isToday ? "bg-[#1e2a38] -mx-2 px-2 py-1.5 rounded border border-[#2a4060]" : ""}`}>
+                    <div className={`text-[13px] ${isToday ? "text-[#7ec8e3] font-bold" : "text-[#a0b0c0]"}`}>{day}</div>
+                    <div className={`text-[13px] font-mono ${shift === "OFF" || shift === "" ? "text-[#4a6a8a]" : "text-[#e8f4f8]"}`}>{shift === "" ? "OFF" : shift}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ==========================================
+  // MANAGER LOGIC (LOGIN & DASHBOARD)
+  // ==========================================
   if(screen==="manager-login") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
       <div className="w-full max-w-[340px]">
