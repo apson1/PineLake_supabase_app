@@ -12,7 +12,7 @@ export default function PineLakeApp() {
   const [allLogs, setAllLogs] = useState([])
   const [screen,setScreen] = useState("kiosk")
   const [authEmp,setAuthEmp] = useState(null)
-  const [portalEmp,setPortalEmp] = useState(null) // NEW: Tracks who is logged into the portal
+  const [portalEmp,setPortalEmp] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
   const [managerSession,setMgrSession] = useState(null)
   const [managerTab,setMgrTab] = useState("employees")
@@ -332,9 +332,6 @@ export default function PineLakeApp() {
 
   const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN").length
 
-  // ==========================================
-  // KIOSK SCREEN
-  // ==========================================
   if(screen==="kiosk") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
       <div className="px-7 pt-5 border-b border-[#1a2535] mb-6">
@@ -416,9 +413,6 @@ export default function PineLakeApp() {
     </div>
   )
 
-  // ==========================================
-  // EMPLOYEE AUTH (CLOCK IN/OUT)
-  // ==========================================
   if(screen==="emp-auth"&&authEmp){
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
     const actionLabel = pendingAction ? pendingAction.replace("_", " ") : "AUTHENTICATE"
@@ -458,9 +452,6 @@ export default function PineLakeApp() {
     )
   }
 
-  // ==========================================
-  // EMPLOYEE PORTAL (SELECT & LOGIN)
-  // ==========================================
   if(screen==="portal-select") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
       <div className="px-7 pt-5 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center">
@@ -500,9 +491,6 @@ export default function PineLakeApp() {
     )
   }
 
-  // ==========================================
-  // EMPLOYEE PORTAL (PERSONAL DASHBOARD)
-  // ==========================================
   if(screen==="portal-dashboard"&&portalEmp) {
     const stats = timesheets[portalEmp.id] || { hours: "0.00", pay: "0.00" }
     const currentWk = schedules[weekKey(0)] || {}
@@ -553,13 +541,10 @@ export default function PineLakeApp() {
     )
   }
 
-  // ==========================================
-  // MANAGER LOGIC (LOGIN & DASHBOARD)
-  // ==========================================
   if(screen==="manager-login") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
       <div className="w-full max-w-[340px]">
-        <ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard"); setMgrTab("schedules")}} onCancel={()=>setScreen("kiosk")}/>
+        <ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard"); setMgrTab("timesheets")}} onCancel={()=>setScreen("kiosk")}/>
       </div>
     </div>
   )
@@ -643,17 +628,25 @@ export default function PineLakeApp() {
               {employees.map(emp=>{
                 const stats = timesheets[emp.id] || { hours: "0.00", pay: "0.00" }
                 const col = ROLE_COLORS[emp.role]||"#555"
+                const hoursNum = parseFloat(stats.hours)
+                const isOvertime = hoursNum >= 40
+                const isApproachingOT = hoursNum >= 36 && hoursNum < 40
+
                 return (
-                  <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex items-center justify-between">
+                  <div key={emp.id} className={`bg-[#131b27] border ${isOvertime ? 'border-[#ef476f]' : isApproachingOT ? 'border-[#fca311]' : 'border-[#1e2a38]'} rounded-xl p-4 flex items-center justify-between`}>
                     <div className="flex items-center gap-3.5">
                       <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
                       <div>
-                        <div className="text-[13px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                        <div className="text-[13px] font-bold text-[#e8f4f8] flex items-center gap-2">
+                          {emp.name}
+                          {isOvertime && <span className="bg-[#ef476f] text-[#0d1117] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">Overtime</span>}
+                          {isApproachingOT && <span className="bg-[#fca311] text-[#0d1117] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">Near OT</span>}
+                        </div>
                         <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role} • ${Number(emp.baseRate).toFixed(2)}/hr</div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[18px] font-mono font-bold text-[#06d6a0]">{stats.hours} hrs</div>
+                      <div className={`text-[18px] font-mono font-bold ${isOvertime ? 'text-[#ef476f]' : isApproachingOT ? 'text-[#fca311]' : 'text-[#06d6a0]'}`}>{stats.hours} hrs</div>
                       <div className="text-[11px] text-[#4a6a8a] mt-0.5">Est Pay: ${stats.pay}</div>
                     </div>
                   </div>
