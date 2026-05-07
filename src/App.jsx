@@ -121,6 +121,44 @@ export default function PineLakeApp() {
     return Math.floor((Date.now()-rec.time)/1000)
   }
 
+  function checkCanClockIn(emp) {
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    const todayName = days[new Date().getDay()]
+    const wk = weekKey(0) 
+    
+    const currentSchedule = schedules[wk]
+    const shiftString = currentSchedule?.[todayName]?.[emp.id]
+    
+    if (!shiftString || shiftString.trim() === "" || shiftString.toLowerCase() === "off") {
+      alert(`Schedule Block: ${emp.name} is not scheduled to work today.`)
+      return false
+    }
+
+    const startStr = shiftString.split("-")[0].trim()
+    const match = startStr.match(/(\d+):(\d+)\s*(AM|PM|am|pm)?/)
+    
+    if (match) {
+      let [_, h, m, ampm] = match
+      h = parseInt(h, 10)
+      m = parseInt(m, 10)
+      
+      if (ampm && ampm.toUpperCase() === "PM" && h < 12) h += 12
+      if (ampm && ampm.toUpperCase() === "AM" && h === 12) h = 0
+      
+      const shiftStart = new Date()
+      shiftStart.setHours(h, m, 0, 0)
+      
+      const diffMinutes = (shiftStart.getTime() - Date.now()) / 60000
+      
+      if (diffMinutes > 15) {
+        alert(`Schedule Block: Too early. Your shift starts at ${startStr}. You can clock in 15 minutes before.`)
+        return false
+      }
+    }
+    
+    return true
+  }
+
   function getTimesheetSummary() {
     const summary = {}
     employees.forEach(emp => {
@@ -129,18 +167,15 @@ export default function PineLakeApp() {
       let lastIn = null
       
       empLogs.forEach(log => {
-        // BREAK_END acts exactly like clocking IN for payroll math
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) {
           lastIn = new Date(log.created_at).getTime()
         } 
-        // BREAK_START acts exactly like clocking OUT for payroll math
         else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
           msTotal += (new Date(log.created_at).getTime() - lastIn)
           lastIn = null
         }
       })
 
-      // If they are currently working, add their live elapsed time to the estimate
       if (lastIn) {
         msTotal += (Date.now() - lastIn)
       }
@@ -197,7 +232,9 @@ export default function PineLakeApp() {
     const link = document.createElement("a")
     link.setAttribute("href", URL.createObjectURL(blob))
     link.setAttribute("download", `payroll_export_${new Date().toISOString().split("T")[0]}.csv`)
-    document.body.appendChild(link); link.click(); document.body.removeChild(link)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   async function handleExportXLSX() {
@@ -231,6 +268,42 @@ export default function PineLakeApp() {
     }
   }
 
+  function updateScheduleCell(day, empId, value) {
+    const wk = weekKey(weekIdx)
+    setSchedules(prev => {
+      const next = { ...prev }
+      if (!next[wk]) next[wk] = {}
+      if (!next[wk][day]) next[wk][day] = {}
+      next[wk][day][empId] = value
+      return next
+    })
+  }
+
+  async function handleSaveScheduleGrid() {
+    const wk = weekKey(weekIdx)
+    const currentGrid = schedules[wk] || {}
+    const recordsToUpsert = []
+    
+    for (const day of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]) {
+      for (const emp of employees) {
+        const shift = currentGrid[day]?.[emp.id] || ""
+        recordsToUpsert.push({
+          week_key: wk,
+          day: day,
+          employee_id: emp.id,
+          shift_time: shift
+        })
+      }
+    }
+
+    const { error } = await supabase.from("schedules").upsert(recordsToUpsert, { onConflict: "week_key, day, employee_id" })
+    if (!error) {
+      alert("Schedule saved successfully")
+    } else {
+      alert("Error saving schedule data")
+    }
+  }
+
   async function doClockAction(emp, actionType) {
     const { error } = await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: actionType }])
     if (error) return
@@ -257,7 +330,6 @@ export default function PineLakeApp() {
     }, 800)
   }
 
-  // Count only employees actively working for the top counter
   const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN").length
 
   if(screen==="kiosk") return (
@@ -306,7 +378,13 @@ export default function PineLakeApp() {
                 
                 <div className="flex gap-2 min-w-[120px] justify-end items-center">
                   {isOut && (
-                    <button onClick={()=>{setAuthEmp(emp); setPendingAction("IN"); setScreen("emp-auth")}} className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono hover:opacity-90">CLOCK IN</button>
+                    <button onClick={()=>{
+                      if (checkCanClockIn(emp)) {
+                        setAuthEmp(emp)
+                        setPendingAction("IN")
+                        setScreen("emp-auth")
+                      }
+                    }} className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono hover:opacity-90">CLOCK IN</button>
                   )}
                   
                   {isOnBreak && (
@@ -335,13 +413,19 @@ export default function PineLakeApp() {
   if(screen==="emp-auth"&&authEmp){
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
     const actionLabel = pendingAction ? pendingAction.replace("_", " ") : "AUTHENTICATE"
+    
+    const wk = weekKey(weekIdx)
+    const todayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date().getDay()]
+    const todayShift = schedules[wk]?.[todayName]?.[authEmp.id] || "Not Scheduled"
+
     return (
       <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
         <div className="w-full max-w-[340px]">
           <div className="text-center mb-7">
             <div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{authEmp.avatar}</div>
             <div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div>
-            <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest mt-1.5 uppercase">CONFIRM {actionLabel}</div>
+            <div className="text-[12px] text-[#4a6a8a] mt-1 font-mono">Today Shift: <span className="text-[#e8f4f8]">{todayShift}</span></div>
+            <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest mt-3 uppercase">CONFIRM {actionLabel}</div>
           </div>
           {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label={`PIN TO ${actionLabel}`} onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
         </div>
@@ -352,7 +436,7 @@ export default function PineLakeApp() {
   if(screen==="manager-login") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
       <div className="w-full max-w-[340px]">
-        <ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard"); setMgrTab("timesheets")}} onCancel={()=>setScreen("kiosk")}/>
+        <ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard"); setMgrTab("schedules")}} onCancel={()=>setScreen("kiosk")}/>
       </div>
     </div>
   )
@@ -371,11 +455,50 @@ export default function PineLakeApp() {
         </div>
         <div className="flex">
           <button style={managerTab==="employees"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("employees")}>Employees</button>
+          <button style={managerTab==="schedules"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("schedules")}>Schedules</button>
           <button style={managerTab==="timesheets"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("timesheets")}>Timesheets</button>
         </div>
       </div>
       
       <div className="px-7 py-6">
+        
+        {managerTab==="schedules"&&(
+          <div>
+            <div className="flex justify-between items-center mb-4.5">
+              <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Schedule Builder</div></div>
+              <button onClick={handleSaveScheduleGrid} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Save Schedule</button>
+            </div>
+            <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[700px]">
+                <thead>
+                  <tr>
+                    <th className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider">EMPLOYEE</th>
+                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(d => <th key={d} className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider uppercase">{d.substring(0,3)}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.map(emp => (
+                    <tr key={emp.id} className="border-b border-[#1a2535] last:border-0">
+                      <td className="p-2.5 text-[13px] font-bold text-[#e8f4f8] whitespace-nowrap">{emp.name}</td>
+                      {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => (
+                        <td key={day} className="p-1.5">
+                          <input
+                            type="text"
+                            value={schedules[weekKey(weekIdx)]?.[day]?.[emp.id] || ""}
+                            onChange={(e) => updateScheduleCell(day, emp.id, e.target.value)}
+                            className="bg-[#0d1117] border border-[#2a4060] rounded w-full p-2 text-[11px] text-[#e8f4f8] font-mono focus:border-[#7ec8e3] focus:outline-none transition-colors"
+                            placeholder="OFF"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {managerTab==="timesheets"&&(
           <div>
             <div className="flex justify-between items-center mb-4.5">
