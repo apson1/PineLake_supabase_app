@@ -12,6 +12,7 @@ export default function PineLakeApp() {
   const [allLogs, setAllLogs] = useState([])
   const [screen,setScreen] = useState("kiosk")
   const [authEmp,setAuthEmp] = useState(null)
+  const [pendingAction, setPendingAction] = useState(null)
   const [managerSession,setMgrSession] = useState(null)
   const [managerTab,setMgrTab] = useState("employees")
   const [showAddEmp,setShowAddEmp] = useState(false)
@@ -45,8 +46,10 @@ export default function PineLakeApp() {
         logs.forEach(log => {
           if (!seen.has(log.employee_id)) {
             seen.add(log.employee_id)
-            if (log.action === "IN") {
-              cState[log.employee_id] = new Date(log.created_at).getTime()
+            if (log.action === "IN" || log.action === "BREAK_END") {
+              cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
+            } else if (log.action === "BREAK_START") {
+              cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
             }
           }
           if (rLogs.length < 50) {
@@ -91,8 +94,10 @@ export default function PineLakeApp() {
 
           setClockedIn(prev => {
             const next = { ...prev }
-            if (log.action === "IN") {
-              next[emp.id] = new Date(log.created_at).getTime()
+            if (log.action === "IN" || log.action === "BREAK_END") {
+              next[emp.id] = { status: "IN", time: new Date(log.created_at).getTime() }
+            } else if (log.action === "BREAK_START") {
+              next[emp.id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
             } else {
               delete next[emp.id]
             }
@@ -111,9 +116,9 @@ export default function PineLakeApp() {
   }, [employees])
 
   function getElapsed(empId){
-    const ts=clockedIn[empId]
-    if(!ts) return 0
-    return Math.floor((Date.now()-ts)/1000)
+    const rec = clockedIn[empId]
+    if(!rec) return 0
+    return Math.floor((Date.now()-rec.time)/1000)
   }
 
   function getTimesheetSummary() {
@@ -122,13 +127,24 @@ export default function PineLakeApp() {
       const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
       let msTotal = 0
       let lastIn = null
+      
       empLogs.forEach(log => {
-        if (log.action === "IN") lastIn = new Date(log.created_at).getTime()
-        else if (log.action === "OUT" && lastIn) {
+        // BREAK_END acts exactly like clocking IN for payroll math
+        if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) {
+          lastIn = new Date(log.created_at).getTime()
+        } 
+        // BREAK_START acts exactly like clocking OUT for payroll math
+        else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
           msTotal += (new Date(log.created_at).getTime() - lastIn)
           lastIn = null
         }
       })
+
+      // If they are currently working, add their live elapsed time to the estimate
+      if (lastIn) {
+        msTotal += (Date.now() - lastIn)
+      }
+
       summary[emp.id] = {
         hours: (msTotal / 3600000).toFixed(2),
         pay: ((msTotal / 3600000) * (emp.baseRate || 0)).toFixed(2)
@@ -167,18 +183,10 @@ export default function PineLakeApp() {
   }
 
   async function handleExportCSV() {
-    const { data, error } = await supabase
-      .from("payroll_history")
-      .select("*")
-      .order("week_start_date", { ascending: false })
-
-    if (error || !data || data.length === 0) {
-      alert("No payroll history found to export.")
-      return
-    }
+    const { data, error } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
+    if (error || !data || data.length === 0) return alert("No payroll history found to export.")
 
     let csvContent = "Employee Name,Week Start Date,Total Hours,Pay Rate,Gross Pay\n"
-
     data.forEach(row => {
       const emp = employees.find(e => e.id === row.employee_id)
       const empName = emp ? emp.name : `Unknown (${row.employee_id})`
@@ -187,37 +195,19 @@ export default function PineLakeApp() {
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
-    const url = URL.createObjectURL(blob)
-    link.setAttribute("href", url)
+    link.setAttribute("href", URL.createObjectURL(blob))
     link.setAttribute("download", `payroll_export_${new Date().toISOString().split("T")[0]}.csv`)
-    link.style.visibility = "hidden"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
   async function handleExportXLSX() {
-    const { data, error } = await supabase
-      .from("payroll_history")
-      .select("*")
-      .order("week_start_date", { ascending: false })
-
-    if (error || !data || data.length === 0) {
-      alert("No payroll history found to export.")
-      return
-    }
+    const { data, error } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
+    if (error || !data || data.length === 0) return alert("No payroll history found to export.")
 
     const formattedData = data.map(row => {
       const emp = employees.find(e => e.id === row.employee_id)
-      return {
-        "Employee Name": emp ? emp.name : `Unknown (${row.employee_id})`,
-        "Week Start Date": row.week_start_date,
-        "Total Hours": row.total_hours,
-        "Pay Rate": row.pay_rate_at_time,
-        "Gross Pay": row.gross_pay
-      }
+      return { "Employee Name": emp ? emp.name : `Unknown (${row.employee_id})`, "Week Start Date": row.week_start_date, "Total Hours": row.total_hours, "Pay Rate": row.pay_rate_at_time, "Gross Pay": row.gross_pay }
     })
-
     const worksheet = XLSX.utils.json_to_sheet(formattedData)
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, "Payroll History")
@@ -229,9 +219,7 @@ export default function PineLakeApp() {
       const { error } = await supabase.from("employees").update({
         name: empData.name, role: empData.role, base_rate: empData.baseRate, bonus_rate: empData.bonusRate, pin: empData.pin, auth_method: empData.authMethod, avatar: empData.avatar
       }).eq("id", empData.id)
-      if (!error) {
-        setEmployees(p => p.map(e => e.id === empData.id ? empData : e))
-      }
+      if (!error) setEmployees(p => p.map(e => e.id === empData.id ? empData : e))
     } else {
       const { data, error } = await supabase.from("employees").insert([{
         name: empData.name, role: empData.role, base_rate: empData.baseRate, bonus_rate: empData.bonusRate, pin: empData.pin, auth_method: empData.authMethod, avatar: empData.avatar
@@ -243,29 +231,34 @@ export default function PineLakeApp() {
     }
   }
 
-  async function doClockAction(emp) {
-    const isIn = !!clockedIn[emp.id]
-    const actionType = isIn ? "OUT" : "IN"
+  async function doClockAction(emp, actionType) {
     const { error } = await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: actionType }])
     if (error) return
-    const t = new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
     
+    const t = new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
     const newLog = { employee_id: emp.id, action: actionType, created_at: new Date().toISOString() }
+    
     setAllLogs(prev => [newLog, ...prev])
-
     setClockedIn(prev => {
       const n = { ...prev }
-      if (isIn) delete n[emp.id]
-      else n[emp.id] = Date.now()
+      if (actionType === "OUT") delete n[emp.id]
+      else if (actionType === "BREAK_START") n[emp.id] = { status: "BREAK", time: Date.now() }
+      else n[emp.id] = { status: "IN", time: Date.now() }
       return n
     })
     setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: actionType, time: t }, ...prev.slice(0, 49)])
   }
 
   function handleEmpAuth(emp) {
-    doClockAction(emp)
-    setTimeout(()=>setScreen("kiosk"),800)
+    doClockAction(emp, pendingAction)
+    setTimeout(()=>{
+      setScreen("kiosk")
+      setPendingAction(null)
+    }, 800)
   }
+
+  // Count only employees actively working for the top counter
+  const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN").length
 
   if(screen==="kiosk") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
@@ -286,34 +279,52 @@ export default function PineLakeApp() {
         </div>
         <div className="flex gap-5 pb-3.5 items-center">
           <div className="text-[11px] text-[#4a6a8a] font-mono">
-            <span className="text-[#06d6a0] font-bold">{Object.keys(clockedIn).length}</span> clocked in total {employees.length}
+            <span className="text-[#06d6a0] font-bold">{activeWorkers}</span> active on clock | {employees.length} total staff
           </div>
           <button onClick={()=>setScreen("manager-login")} className="ml-auto bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Manager</button>
         </div>
       </div>
       <div className="px-7">
-        <div className="text-[12px] text-[#3a5a7a] text-center mb-5 font-mono tracking-[0.08em]">TAP YOUR NAME TO CLOCK IN OR OUT</div>
+        <div className="text-[12px] text-[#3a5a7a] text-center mb-5 font-mono tracking-[0.08em]">CHOOSE AN ACTION TO AUTHENTICATE</div>
         <div className="flex flex-col gap-2.5">
           {employees.map(emp=>{
-            const isIn=!!clockedIn[emp.id]
-            const elapsed=getElapsed(emp.id)
-            const col=ROLE_COLORS[emp.role]||"#7ec8e3"
+            const rec = clockedIn[emp.id]
+            const isWorking = rec?.status === "IN"
+            const isOnBreak = rec?.status === "BREAK"
+            const isOut = !rec
+            
+            const elapsed = getElapsed(emp.id)
+            const col = ROLE_COLORS[emp.role]||"#7ec8e3"
+            
             return (
-              <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("emp-auth")}}
-                className={`flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl cursor-pointer text-left w-full transition-all duration-300 border-[1.5px] ${isIn ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
+              <div key={emp.id} className={`flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl text-left w-full transition-all duration-300 border-[1.5px] ${isWorking ? "bg-[#0d1f14] border-[#06d6a0]" : isOnBreak ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38]"}`}>
                 <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
                   <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
                 </div>
-                <div className="text-right min-w-[120px]">
-                  {isIn ? (
-                    <div><div className="font-mono text-[20px] font-bold text-[#06d6a0] tracking-[0.04em] leading-none">{fmtElapsed(elapsed)}</div></div>
-                  ) : (
-                    <div className="flex items-center gap-2 justify-end"><div className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono">CLOCK IN</div></div>
+                
+                <div className="flex gap-2 min-w-[120px] justify-end items-center">
+                  {isOut && (
+                    <button onClick={()=>{setAuthEmp(emp); setPendingAction("IN"); setScreen("emp-auth")}} className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono hover:opacity-90">CLOCK IN</button>
+                  )}
+                  
+                  {isOnBreak && (
+                    <>
+                      <div className="text-[#fca311] font-mono text-[14px] font-bold mr-2">{fmtElapsed(elapsed)}</div>
+                      <button onClick={()=>{setAuthEmp(emp); setPendingAction("BREAK_END"); setScreen("emp-auth")}} className="bg-[#fca311] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono hover:opacity-90">END BREAK</button>
+                    </>
+                  )}
+                  
+                  {isWorking && (
+                    <>
+                      <div className="text-[#06d6a0] font-mono text-[15px] font-bold mr-2 tracking-wide">{fmtElapsed(elapsed)}</div>
+                      <button onClick={()=>{setAuthEmp(emp); setPendingAction("BREAK_START"); setScreen("emp-auth")}} className="bg-transparent border border-[#1e2a38] text-[#e8e8e8] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono hover:bg-[#1e2a38]">BREAK</button>
+                      <button onClick={()=>{setAuthEmp(emp); setPendingAction("OUT"); setScreen("emp-auth")}} className="bg-[#ef476f] text-[#0d1117] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono hover:opacity-90">CLOCK OUT</button>
+                    </>
                   )}
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>
@@ -322,16 +333,17 @@ export default function PineLakeApp() {
   )
 
   if(screen==="emp-auth"&&authEmp){
-    const isIn=!!clockedIn[authEmp.id]
     const col=ROLE_COLORS[authEmp.role]||"#7ec8e3"
+    const actionLabel = pendingAction ? pendingAction.replace("_", " ") : "AUTHENTICATE"
     return (
       <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
         <div className="w-full max-w-[340px]">
           <div className="text-center mb-7">
             <div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{authEmp.avatar}</div>
             <div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div>
+            <div className="text-[11px] text-[#7ec8e3] font-mono tracking-widest mt-1.5 uppercase">CONFIRM {actionLabel}</div>
           </div>
-          {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label="YOUR PIN" onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
+          {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label={`PIN TO ${actionLabel}`} onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
         </div>
       </div>
     )
@@ -364,7 +376,6 @@ export default function PineLakeApp() {
       </div>
       
       <div className="px-7 py-6">
-        
         {managerTab==="timesheets"&&(
           <div>
             <div className="flex justify-between items-center mb-4.5">
