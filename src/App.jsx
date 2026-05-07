@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { supabase } from "./lib/supabase"
 import { ROLE_COLORS, HIST_HOURS, multiply, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle, statBoxStyle } from "./lib/utils"
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
+import * as XLSX from "xlsx"
 
 export default function PineLakeApp() {
   const [employees,setEmployees] = useState([])
@@ -165,6 +166,64 @@ export default function PineLakeApp() {
     }
   }
 
+  async function handleExportCSV() {
+    const { data, error } = await supabase
+      .from("payroll_history")
+      .select("*")
+      .order("week_start_date", { ascending: false })
+
+    if (error || !data || data.length === 0) {
+      alert("No payroll history found to export.")
+      return
+    }
+
+    let csvContent = "Employee Name,Week Start Date,Total Hours,Pay Rate,Gross Pay\n"
+
+    data.forEach(row => {
+      const emp = employees.find(e => e.id === row.employee_id)
+      const empName = emp ? emp.name : `Unknown (${row.employee_id})`
+      csvContent += `"${empName}",${row.week_start_date},${row.total_hours},${row.pay_rate_at_time},${row.gross_pay}\n`
+    })
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `payroll_export_${new Date().toISOString().split("T")[0]}.csv`)
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  async function handleExportXLSX() {
+    const { data, error } = await supabase
+      .from("payroll_history")
+      .select("*")
+      .order("week_start_date", { ascending: false })
+
+    if (error || !data || data.length === 0) {
+      alert("No payroll history found to export.")
+      return
+    }
+
+    const formattedData = data.map(row => {
+      const emp = employees.find(e => e.id === row.employee_id)
+      return {
+        "Employee Name": emp ? emp.name : `Unknown (${row.employee_id})`,
+        "Week Start Date": row.week_start_date,
+        "Total Hours": row.total_hours,
+        "Pay Rate": row.pay_rate_at_time,
+        "Gross Pay": row.gross_pay
+      }
+    })
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedData)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Payroll History")
+    XLSX.writeFile(workbook, `payroll_export_${new Date().toISOString().split("T")[0]}.xlsx`)
+  }
+
   async function handleSaveEmployee(empData) {
     if (empData.id && typeof empData.id === "number" && String(empData.id).length < 10) {
       const { error } = await supabase.from("employees").update({
@@ -310,7 +369,11 @@ export default function PineLakeApp() {
           <div>
             <div className="flex justify-between items-center mb-4.5">
               <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Payroll & Timesheets</div></div>
-              <button onClick={handleFinalizePayroll} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold">Finalize Payroll</button>
+              <div className="flex gap-2.5">
+                <button onClick={handleExportCSV} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-2.5 px-4 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:bg-[#1a2a3a] transition-colors">CSV</button>
+                <button onClick={handleExportXLSX} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-2.5 px-4 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:bg-[#1a2a3a] transition-colors">Excel</button>
+                <button onClick={handleFinalizePayroll} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Finalize Payroll</button>
+              </div>
             </div>
             <div className="flex flex-col gap-2.5">
               {employees.map(emp=>{
