@@ -230,7 +230,14 @@ export default function PineLakeApp() {
   }
   const timesheets = getTimesheetSummary()
 
-  async function handleFinalizePayroll() {
+async function handleFinalizePayroll() {
+    // 1. SAFETY CHECK: Prevent finalization if anyone is clocked in or on break
+    const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN" || state.status === "BREAK").length;
+    if (activeWorkers > 0) {
+      alert(`Stop: There are ${activeWorkers} employee(s) still on the clock. Everyone must clock out before you can finalize payroll.`);
+      return;
+    }
+
     const today = new Date().toISOString().split("T")[0]
     const records = employees.map(emp => {
       const stats = timesheets[emp.id] || { hours: "0.00", pay: "0.00" }
