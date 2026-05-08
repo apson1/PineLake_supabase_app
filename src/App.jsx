@@ -263,13 +263,19 @@ export default function PineLakeApp() {
 
     const today = new Date().toISOString().split("T")[0]
     const records = employees.map(emp => {
-      const stats = timesheets[emp.id] || { hours: "0.00", gross: 0 }
+      const stats = timesheets[emp.id] || { hours: "0.00", gross: 0, fedTax: 0, stateTax: 0, ficaTax: 0, employerTax: 0, totalCost: 0, netPay: 0 }
       return {
         employee_id: emp.id,
         week_start_date: today,
         total_hours: parseFloat(stats.hours),
         pay_rate_at_time: emp.baseRate,
-        gross_pay: stats.gross
+        gross_pay: stats.gross,
+        fed_tax: stats.fedTax,
+        state_tax: stats.stateTax,
+        fica_tax: stats.ficaTax,
+        employer_tax: stats.employerTax,
+        total_cost: stats.totalCost,
+        net_pay: stats.netPay
       }
     })
 
@@ -292,11 +298,11 @@ export default function PineLakeApp() {
     const { data, error } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
     if (error || !data || data.length === 0) return alert("No payroll history found to export.")
 
-    let csvContent = "Employee Name,Week Start Date,Total Hours,Pay Rate,Gross Pay\n"
+    let csvContent = "Employee Name,Week Start Date,Total Hours,Pay Rate,Gross Pay,Fed Tax,State Tax,FICA,Employer Tax,Total Cost,Net Pay\n"
     data.forEach(row => {
       const emp = employees.find(e => e.id === row.employee_id)
       const empName = emp ? emp.name : `Unknown (${row.employee_id})`
-      csvContent += `"${empName}",${row.week_start_date},${row.total_hours},${row.pay_rate_at_time},${row.gross_pay}\n`
+      csvContent += `"${empName}",${row.week_start_date},${row.total_hours},${row.pay_rate_at_time},${row.gross_pay},${row.fed_tax},${row.state_tax},${row.fica_tax},${row.employer_tax},${row.total_cost},${row.net_pay}\n`
     })
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
@@ -314,7 +320,19 @@ export default function PineLakeApp() {
 
     const formattedData = data.map(row => {
       const emp = employees.find(e => e.id === row.employee_id)
-      return { "Employee Name": emp ? emp.name : `Unknown (${row.employee_id})`, "Week Start Date": row.week_start_date, "Total Hours": row.total_hours, "Pay Rate": row.pay_rate_at_time, "Gross Pay": row.gross_pay }
+      return { 
+        "Employee Name": emp ? emp.name : `Unknown (${row.employee_id})`, 
+        "Week Start Date": row.week_start_date, 
+        "Total Hours": row.total_hours, 
+        "Pay Rate": row.pay_rate_at_time, 
+        "Gross Pay": row.gross_pay,
+        "Fed Tax": row.fed_tax,
+        "State Tax": row.state_tax,
+        "FICA Tax": row.fica_tax,
+        "Employer Tax": row.employer_tax,
+        "Total Cost": row.total_cost,
+        "Net Pay": row.net_pay
+      }
     })
     const worksheet = XLSX.utils.json_to_sheet(formattedData)
     const workbook = XLSX.utils.book_new()
