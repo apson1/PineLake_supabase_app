@@ -1,17 +1,15 @@
 import { useState, useEffect } from "react"
 import { supabase } from "./lib/supabase"
-import { ROLE_COLORS, HIST_HOURS, multiply, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle, statBoxStyle } from "./lib/utils"
+import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
 import * as XLSX from "xlsx"
 
-// Utility to ensure week keys are strictly based on Sunday dates
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() - d.getDay())
   return d.toISOString().split('T')[0]
 }
 
-// Utility to parse mixed formats into native 24h inputs (HH:MM)
 function parseTo24h(timeStr) {
   if (!timeStr) return "09:00"
   timeStr = timeStr.trim()
@@ -26,7 +24,6 @@ function parseTo24h(timeStr) {
   return "09:00"
 }
 
-// Utility to format 24h back to human readable 12h for display
 function formatShiftDisplay(shiftStr) {
   if (!shiftStr || shiftStr.toUpperCase() === "OFF") return "OFF"
   const parts = shiftStr.split("-")
@@ -41,6 +38,10 @@ function formatShiftDisplay(shiftStr) {
     return `${h}:${m} ${ampm}`
   }
   return `${formatTime(parts[0])} - ${formatTime(parts[1])}`
+}
+
+function fmtMoney(n) { 
+  return "$" + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
 }
 
 export default function PineLakeApp() {
@@ -59,7 +60,6 @@ export default function PineLakeApp() {
   const [editEmp,setEditEmp] = useState(null)
   const [now,setNow] = useState(new Date())
 
-  // NEW: Date-based week selection
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
   const activeWeekKey = getSundayKey(targetDate)
 
@@ -221,32 +221,55 @@ export default function PineLakeApp() {
         msTotal += (Date.now() - lastIn)
       }
 
+      const totalH = msTotal / 3600000
+      const regH = Math.min(totalH, 40)
+      const otH = Math.max(0, totalH - 40)
+      
+      const baseRate = parseFloat(emp.baseRate) || 0
+      const bonusRate = parseFloat(emp.bonusRate) || 0
+      const gross = (regH * baseRate) + (otH * baseRate * 1.5) + (totalH * bonusRate)
+      
+      const employerTax = gross * 0.1095 
+      const totalCost = gross + employerTax
+
+      const fedTax = gross * 0.12
+      const stateTax = gross * 0.055
+      const ficaTax = gross * 0.0765
+      const netPay = gross - fedTax - stateTax - ficaTax
+
       summary[emp.id] = {
-        hours: (msTotal / 3600000).toFixed(2),
-        pay: ((msTotal / 3600000) * (emp.baseRate || 0)).toFixed(2)
+        hours: totalH.toFixed(2),
+        regH: regH.toFixed(2),
+        otH: otH.toFixed(2),
+        gross: gross,
+        employerTax: employerTax,
+        totalCost: totalCost,
+        fedTax: fedTax,
+        stateTax: stateTax,
+        ficaTax: ficaTax,
+        netPay: netPay
       }
     })
     return summary
   }
   const timesheets = getTimesheetSummary()
 
-async function handleFinalizePayroll() {
-    // 1. SAFETY CHECK: Prevent finalization if anyone is clocked in or on break
-    const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN" || state.status === "BREAK").length;
+  async function handleFinalizePayroll() {
+    const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN" || state.status === "BREAK").length
     if (activeWorkers > 0) {
-      alert(`Stop: There are ${activeWorkers} employee(s) still on the clock. Everyone must clock out before you can finalize payroll.`);
-      return;
+      alert(`Stop: There are ${activeWorkers} employee(s) still on the clock. Everyone must clock out before you can finalize payroll.`)
+      return
     }
 
     const today = new Date().toISOString().split("T")[0]
     const records = employees.map(emp => {
-      const stats = timesheets[emp.id] || { hours: "0.00", pay: "0.00" }
+      const stats = timesheets[emp.id] || { hours: "0.00", gross: 0 }
       return {
         employee_id: emp.id,
         week_start_date: today,
         total_hours: parseFloat(stats.hours),
         pay_rate_at_time: emp.baseRate,
-        gross_pay: parseFloat(stats.pay)
+        gross_pay: stats.gross
       }
     })
 
@@ -538,7 +561,7 @@ async function handleFinalizePayroll() {
   }
 
   if(screen==="portal-dashboard"&&portalEmp) {
-    const stats = timesheets[portalEmp.id] || { hours: "0.00", pay: "0.00" }
+    const stats = timesheets[portalEmp.id] || { hours: "0.00", gross: 0, netPay: 0 }
     const currentWk = schedules[getSundayKey(new Date().toISOString().split('T')[0])] || {}
     
     return (
@@ -554,16 +577,21 @@ async function handleFinalizePayroll() {
         <div className="px-7 flex flex-col gap-6">
           <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 shadow-lg">
             <div className="text-[14px] font-semibold text-[#e8f4f8] mb-4">Current Week Summary</div>
-            <div className="flex justify-between items-end">
+            <div className="flex justify-between items-end mb-4 border-b border-[#1a2535] pb-4">
               <div>
                 <div className="text-[32px] font-mono font-bold text-[#06d6a0] leading-none">{stats.hours}</div>
                 <div className="text-[11px] text-[#4a6a8a] mt-1.5 font-mono uppercase">Total Hours</div>
               </div>
               <div className="text-right">
-                <div className="text-[22px] font-mono font-bold text-[#e8f4f8] leading-none">${stats.pay}</div>
+                <div className="text-[22px] font-mono font-bold text-[#e8f4f8] leading-none">{fmtMoney(stats.gross)}</div>
                 <div className="text-[11px] text-[#4a6a8a] mt-1.5 font-mono uppercase">Est. Gross Pay</div>
               </div>
             </div>
+            <div className="flex justify-between items-center bg-[#0d1117] p-3 rounded-lg border border-[#1e2a38]">
+               <div className="text-[11px] text-[#fca311] font-mono uppercase">Est. Net Take-Home</div>
+               <div className="text-[20px] font-mono font-bold text-[#fca311] leading-none">{fmtMoney(stats.netPay)}</div>
+            </div>
+            <div className="text-[9px] text-[#4a6a8a] mt-3 font-mono text-center">Net pay assumes standard 12% Fed, 5.5% State, 7.65% FICA</div>
           </div>
 
           <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 shadow-lg">
@@ -596,176 +624,229 @@ async function handleFinalizePayroll() {
     </div>
   )
 
-  if(screen==="manager-dashboard"&&managerSession) return (
-    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[1020px] mx-auto pb-15">
-      {showAddEmp&&<EmployeeForm title="Add Employee" saveLabel="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
-      {editEmp&&<EmployeeForm title="Edit Employee" saveLabel="Save Changes" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
-      
-      <div className="px-7 pt-5 border-b border-[#1a2535]">
-        <div className="flex items-end justify-between mb-4">
-          <div><h1 className="m-0 text-[22px] font-bold text-[#e8f4f8]">Manager Dashboard</h1></div>
-          <div className="flex gap-2">
-            <button onClick={()=>setScreen("kiosk")} className="bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3 rounded-md cursor-pointer font-mono text-[10px]">Kiosk</button>
+  if(screen==="manager-dashboard"&&managerSession) {
+    const totalFacilityStats = employees.reduce((a, emp) => {
+      const stats = timesheets[emp.id] || { gross: 0, employerTax: 0, totalCost: 0, hours: 0 }
+      return {
+        gross: a.gross + parseFloat(stats.gross || 0),
+        employerTax: a.employerTax + parseFloat(stats.employerTax || 0),
+        totalCost: a.totalCost + parseFloat(stats.totalCost || 0),
+        hours: a.hours + parseFloat(stats.hours || 0)
+      }
+    }, { gross: 0, employerTax: 0, totalCost: 0, hours: 0 })
+
+    return (
+      <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[1020px] mx-auto pb-15">
+        {showAddEmp&&<EmployeeForm title="Add Employee" saveLabel="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
+        {editEmp&&<EmployeeForm title="Edit Employee" saveLabel="Save Changes" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
+        
+        <div className="px-7 pt-5 border-b border-[#1a2535]">
+          <div className="flex items-end justify-between mb-4">
+            <div><h1 className="m-0 text-[22px] font-bold text-[#e8f4f8]">Manager Dashboard</h1></div>
+            <div className="flex gap-2">
+              <button onClick={()=>setScreen("kiosk")} className="bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3 rounded-md cursor-pointer font-mono text-[10px]">Kiosk</button>
+            </div>
+          </div>
+          <div className="flex">
+            <button style={managerTab==="employees"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("employees")}>Employees</button>
+            <button style={managerTab==="schedules"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("schedules")}>Schedules</button>
+            <button style={managerTab==="timesheets"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("timesheets")}>Payroll & Cost</button>
           </div>
         </div>
-        <div className="flex">
-          <button style={managerTab==="employees"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("employees")}>Employees</button>
-          <button style={managerTab==="schedules"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("schedules")}>Schedules</button>
-          <button style={managerTab==="timesheets"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("timesheets")}>Timesheets</button>
-        </div>
-      </div>
-      
-      <div className="px-7 py-6">
         
-        {managerTab==="schedules"&&(
-          <div>
-            <div className="flex justify-between items-center mb-4.5">
-              <div className="flex items-center gap-4">
-                <div className="text-[14px] font-semibold text-[#e8f4f8]">Schedule Builder</div>
-                <div className="flex gap-3 items-center ml-4 border-l border-[#1e2a38] pl-4">
-                  <label className="text-[11px] text-[#4a6a8a] font-mono">Select Week:</label>
-                  <input 
-                    type="date" 
-                    value={targetDate} 
-                    onChange={(e) => setTargetDate(e.target.value)}
-                    className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded py-1 px-2 text-[12px] font-mono focus:outline-none focus:border-[#7ec8e3]"
-                    style={{colorScheme: "dark"}}
-                  />
+        <div className="px-7 py-6">
+          
+          {managerTab==="schedules"&&(
+            <div>
+              <div className="flex justify-between items-center mb-4.5">
+                <div className="flex items-center gap-4">
+                  <div className="text-[14px] font-semibold text-[#e8f4f8]">Schedule Builder</div>
+                  <div className="flex gap-3 items-center ml-4 border-l border-[#1e2a38] pl-4">
+                    <label className="text-[11px] text-[#4a6a8a] font-mono">Select Week:</label>
+                    <input 
+                      type="date" 
+                      value={targetDate} 
+                      onChange={(e) => setTargetDate(e.target.value)}
+                      className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded py-1 px-2 text-[12px] font-mono focus:outline-none focus:border-[#7ec8e3]"
+                      style={{colorScheme: "dark"}}
+                    />
+                  </div>
+                </div>
+                <button onClick={handleSaveScheduleGrid} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Save Schedule</button>
+              </div>
+              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[900px]">
+                  <thead>
+                    <tr>
+                      <th className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider">EMPLOYEE</th>
+                      {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(d => <th key={d} className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider uppercase">{d.substring(0,3)}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.map(emp => (
+                      <tr key={emp.id} className="border-b border-[#1a2535] last:border-0 hover:bg-[#1a2535]">
+                        <td className="p-2.5 text-[13px] font-bold text-[#e8f4f8] whitespace-nowrap">{emp.name}</td>
+                        {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => {
+                          const shiftStr = schedules[activeWeekKey]?.[day]?.[emp.id] || "OFF"
+                          const isOff = shiftStr.toUpperCase() === "OFF" || shiftStr === ""
+                          
+                          const parts = shiftStr.split("-")
+                          const start24 = isOff ? "09:00" : parseTo24h(parts[0])
+                          const end24 = isOff ? "17:00" : parseTo24h(parts[1])
+
+                          return (
+                          <td key={day} className="p-1.5 align-top w-[140px]">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex justify-between items-center px-1">
+                                <span className="text-[9px] text-[#4a6a8a] uppercase font-mono">Status</span>
+                                <button onClick={() => updateScheduleCell(day, emp.id, isOff ? "09:00-17:00" : "OFF")} className="text-[9px] text-[#7ec8e3] hover:text-[#e8f4f8] font-mono cursor-pointer border-none bg-transparent p-0">
+                                  {isOff ? "Set Time" : "Set OFF"}
+                                </button>
+                              </div>
+                              
+                              {isOff ? (
+                                <div className="bg-[#1f1a0d] border border-[#fca311] text-[#fca311] text-center text-[12px] font-bold py-2 rounded font-mono tracking-widest">OFF</div>
+                              ) : (
+                                <div className="flex items-center gap-1 bg-[#0d1117] border border-[#2a4060] rounded p-1">
+                                  <input
+                                    type="time"
+                                    value={start24}
+                                    onChange={(e) => updateScheduleCell(day, emp.id, `${e.target.value}-${end24}`)}
+                                    className="bg-transparent border-none w-full text-[11px] text-[#e8f4f8] font-mono focus:outline-none p-0 text-center"
+                                    style={{colorScheme: "dark"}}
+                                  />
+                                  <span className="text-[#4a6a8a] text-[10px]">-</span>
+                                  <input
+                                    type="time"
+                                    value={end24}
+                                    onChange={(e) => updateScheduleCell(day, emp.id, `${start24}-${e.target.value}`)}
+                                    className="bg-transparent border-none w-full text-[11px] text-[#e8f4f8] font-mono focus:outline-none p-0 text-center"
+                                    style={{colorScheme: "dark"}}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        )})}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {managerTab==="timesheets"&&(
+            <div>
+              <div className="flex justify-between items-center mb-4.5">
+                <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Facility Labor Summary</div></div>
+                <div className="flex gap-2.5">
+                  <button onClick={handleExportCSV} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-2.5 px-4 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:bg-[#1a2a3a] transition-colors">CSV</button>
+                  <button onClick={handleExportXLSX} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-2.5 px-4 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:bg-[#1a2a3a] transition-colors">Excel</button>
+                  <button onClick={handleFinalizePayroll} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Finalize Payroll</button>
                 </div>
               </div>
-              <button onClick={handleSaveScheduleGrid} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Save Schedule</button>
-            </div>
-            <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[900px]">
-                <thead>
-                  <tr>
-                    <th className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider">EMPLOYEE</th>
-                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(d => <th key={d} className="p-2.5 border-b border-[#1a2535] text-[#4a6a8a] text-[11px] font-mono tracking-wider uppercase">{d.substring(0,3)}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {employees.map(emp => (
-                    <tr key={emp.id} className="border-b border-[#1a2535] last:border-0 hover:bg-[#1a2535]">
-                      <td className="p-2.5 text-[13px] font-bold text-[#e8f4f8] whitespace-nowrap">{emp.name}</td>
-                      {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => {
-                        const shiftStr = schedules[activeWeekKey]?.[day]?.[emp.id] || "OFF"
-                        const isOff = shiftStr.toUpperCase() === "OFF" || shiftStr === ""
-                        
-                        const parts = shiftStr.split("-")
-                        const start24 = isOff ? "09:00" : parseTo24h(parts[0])
-                        const end24 = isOff ? "17:00" : parseTo24h(parts[1])
 
-                        return (
-                        <td key={day} className="p-1.5 align-top w-[140px]">
-                          <div className="flex flex-col gap-1">
-                            <div className="flex justify-between items-center px-1">
-                              <span className="text-[9px] text-[#4a6a8a] uppercase font-mono">Status</span>
-                              <button onClick={() => updateScheduleCell(day, emp.id, isOff ? "09:00-17:00" : "OFF")} className="text-[9px] text-[#7ec8e3] hover:text-[#e8f4f8] font-mono cursor-pointer border-none bg-transparent p-0">
-                                {isOff ? "Set Time" : "Set OFF"}
-                              </button>
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center">
+                  <div className="text-[20px] font-mono font-bold text-[#7ec8e3]">{totalFacilityStats.hours.toFixed(2)}h</div>
+                  <div className="text-[10px] text-[#4a6a8a] uppercase tracking-wide mt-2">Total Hours</div>
+                </div>
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center">
+                  <div className="text-[20px] font-mono font-bold text-[#06d6a0]">{fmtMoney(totalFacilityStats.gross)}</div>
+                  <div className="text-[10px] text-[#4a6a8a] uppercase tracking-wide mt-2">Gross Wages</div>
+                </div>
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center">
+                  <div className="text-[20px] font-mono font-bold text-[#fca311]">{fmtMoney(totalFacilityStats.employerTax)}</div>
+                  <div className="text-[10px] text-[#4a6a8a] uppercase tracking-wide mt-2">Employer Taxes</div>
+                </div>
+                <div className="bg-[#131b27] border border-[#ef476f44] rounded-xl p-4 text-center">
+                  <div className="text-[20px] font-mono font-bold text-[#ef476f]">{fmtMoney(totalFacilityStats.totalCost)}</div>
+                  <div className="text-[10px] text-[#4a6a8a] uppercase tracking-wide mt-2">Total Labor Cost</div>
+                </div>
+              </div>
+
+              <div className="text-[14px] font-semibold text-[#e8f4f8] mb-4">Detailed Employee Breakdown</div>
+              <div className="flex flex-col gap-2.5">
+                {employees.map(emp=>{
+                  const stats = timesheets[emp.id] || { hours: "0.00", gross: 0, employerTax: 0, totalCost: 0, netPay: 0 }
+                  const col = ROLE_COLORS[emp.role]||"#555"
+                  const hoursNum = parseFloat(stats.hours)
+                  const isOvertime = hoursNum >= 40
+                  const isApproachingOT = hoursNum >= 36 && hoursNum < 40
+
+                  return (
+                    <div key={emp.id} className={`bg-[#131b27] border ${isOvertime ? 'border-[#ef476f]' : isApproachingOT ? 'border-[#fca311]' : 'border-[#1e2a38]'} rounded-xl p-4 flex flex-col gap-4`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+                          <div>
+                            <div className="text-[13px] font-bold text-[#e8f4f8] flex items-center gap-2">
+                              {emp.name}
+                              {isOvertime && <span className="bg-[#ef476f] text-[#0d1117] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">Overtime</span>}
+                              {isApproachingOT && <span className="bg-[#fca311] text-[#0d1117] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">Near OT</span>}
                             </div>
-                            
-                            {isOff ? (
-                              <div className="bg-[#1f1a0d] border border-[#fca311] text-[#fca311] text-center text-[12px] font-bold py-2 rounded font-mono tracking-widest">OFF</div>
-                            ) : (
-                              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#2a4060] rounded p-1">
-                                <input
-                                  type="time"
-                                  value={start24}
-                                  onChange={(e) => updateScheduleCell(day, emp.id, `${e.target.value}-${end24}`)}
-                                  className="bg-transparent border-none w-full text-[11px] text-[#e8f4f8] font-mono focus:outline-none p-0 text-center"
-                                  style={{colorScheme: "dark"}}
-                                />
-                                <span className="text-[#4a6a8a] text-[10px]">-</span>
-                                <input
-                                  type="time"
-                                  value={end24}
-                                  onChange={(e) => updateScheduleCell(day, emp.id, `${start24}-${e.target.value}`)}
-                                  className="bg-transparent border-none w-full text-[11px] text-[#e8f4f8] font-mono focus:outline-none p-0 text-center"
-                                  style={{colorScheme: "dark"}}
-                                />
-                              </div>
-                            )}
+                            <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role} • ${Number(emp.baseRate).toFixed(2)}/hr</div>
                           </div>
-                        </td>
-                      )})}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {managerTab==="timesheets"&&(
-          <div>
-            <div className="flex justify-between items-center mb-4.5">
-              <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Payroll & Timesheets</div></div>
-              <div className="flex gap-2.5">
-                <button onClick={handleExportCSV} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-2.5 px-4 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:bg-[#1a2a3a] transition-colors">CSV</button>
-                <button onClick={handleExportXLSX} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-2.5 px-4 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:bg-[#1a2a3a] transition-colors">Excel</button>
-                <button onClick={handleFinalizePayroll} className="bg-[#06d6a0] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold hover:opacity-90 transition-opacity">Finalize Payroll</button>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-[18px] font-mono font-bold ${isOvertime ? 'text-[#ef476f]' : isApproachingOT ? 'text-[#fca311]' : 'text-[#06d6a0]'}`}>{stats.hours} hrs</div>
+                          <div className="text-[11px] text-[#4a6a8a] mt-0.5">Est. Net Pay: <span className="text-[#fca311] font-bold">{fmtMoney(stats.netPay)}</span></div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 bg-[#0d1117] p-2 rounded-lg border border-[#2a4060]">
+                        <div className="text-center">
+                          <div className="text-[11px] font-mono font-bold text-[#e8f4f8]">{fmtMoney(stats.gross)}</div>
+                          <div className="text-[9px] text-[#4a6a8a] uppercase mt-1">Gross Pay</div>
+                        </div>
+                        <div className="text-center border-l border-[#1e2a38]">
+                          <div className="text-[11px] font-mono font-bold text-[#ef476f]">- {fmtMoney(stats.fedTax + stats.stateTax + stats.ficaTax)}</div>
+                          <div className="text-[9px] text-[#4a6a8a] uppercase mt-1">Emp. Taxes</div>
+                        </div>
+                        <div className="text-center border-l border-[#1e2a38]">
+                          <div className="text-[11px] font-mono font-bold text-[#fca311]">+ {fmtMoney(stats.employerTax)}</div>
+                          <div className="text-[9px] text-[#4a6a8a] uppercase mt-1">Er. Liability</div>
+                        </div>
+                        <div className="text-center border-l border-[#1e2a38]">
+                          <div className="text-[11px] font-mono font-bold text-[#ef476f]">{fmtMoney(stats.totalCost)}</div>
+                          <div className="text-[9px] text-[#4a6a8a] uppercase mt-1">Total Cost</div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
-            <div className="flex flex-col gap-2.5">
-              {employees.map(emp=>{
-                const stats = timesheets[emp.id] || { hours: "0.00", pay: "0.00" }
-                const col = ROLE_COLORS[emp.role]||"#555"
-                const hoursNum = parseFloat(stats.hours)
-                const isOvertime = hoursNum >= 40
-                const isApproachingOT = hoursNum >= 36 && hoursNum < 40
+          )}
 
-                return (
-                  <div key={emp.id} className={`bg-[#131b27] border ${isOvertime ? 'border-[#ef476f]' : isApproachingOT ? 'border-[#fca311]' : 'border-[#1e2a38]'} rounded-xl p-4 flex items-center justify-between`}>
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
-                      <div>
-                        <div className="text-[13px] font-bold text-[#e8f4f8] flex items-center gap-2">
-                          {emp.name}
-                          {isOvertime && <span className="bg-[#ef476f] text-[#0d1117] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">Overtime</span>}
-                          {isApproachingOT && <span className="bg-[#fca311] text-[#0d1117] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">Near OT</span>}
+          {managerTab==="employees"&&(
+            <div>
+              <div className="flex justify-between items-center mb-4.5">
+                <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Employee Roster</div></div>
+                <button onClick={()=>setShowAddEmp(true)} className="bg-[#7ec8e3] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold">Add Employee</button>
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {employees.map(emp=>{
+                  const col=ROLE_COLORS[emp.role]||"#555"
+                  return (
+                    <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3.5">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+                        <div className="flex-1">
+                          <div className="text-[13px] font-bold text-[#e8f4f8] flex items-center gap-2">{emp.name}</div>
+                          <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
                         </div>
-                        <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role} • ${Number(emp.baseRate).toFixed(2)}/hr</div>
+                        <button onClick={()=>setEditEmp(emp)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-9 h-9 rounded-lg cursor-pointer text-[15px] shrink-0 flex items-center justify-center" title="Edit">EDIT</button>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className={`text-[18px] font-mono font-bold ${isOvertime ? 'text-[#ef476f]' : isApproachingOT ? 'text-[#fca311]' : 'text-[#06d6a0]'}`}>{stats.hours} hrs</div>
-                      <div className="text-[11px] text-[#4a6a8a] mt-0.5">Est Pay: ${stats.pay}</div>
-                    </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        )}
-
-        {managerTab==="employees"&&(
-          <div>
-            <div className="flex justify-between items-center mb-4.5">
-              <div><div className="text-[14px] font-semibold text-[#e8f4f8]">Employee Roster</div></div>
-              <button onClick={()=>setShowAddEmp(true)} className="bg-[#7ec8e3] border-none text-[#0d1117] py-2.5 px-5 rounded-lg cursor-pointer font-serif text-[13px] font-bold">Add Employee</button>
-            </div>
-            <div className="flex flex-col gap-2.5">
-              {employees.map(emp=>{
-                const col=ROLE_COLORS[emp.role]||"#555"
-                return (
-                  <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3.5">
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
-                      <div className="flex-1">
-                        <div className="text-[13px] font-bold text-[#e8f4f8] flex items-center gap-2">{emp.name}</div>
-                        <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
-                      </div>
-                      <button onClick={()=>setEditEmp(emp)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-9 h-9 rounded-lg cursor-pointer text-[15px] shrink-0 flex items-center justify-center" title="Edit">EDIT</button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
   return null
 }
