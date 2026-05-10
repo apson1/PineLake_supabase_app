@@ -245,7 +245,7 @@ export default function PineLakeApp() {
     if (Object.values(clockedIn).length > 0) return alert("Stop: Everyone must clock out before finalizing.")
     const today = new Date().toISOString().split("T")[0]
     const records = employees.map(emp => {
-      const s = timesheets[emp.id] || { hours: "0.00", gross: 0 }
+      const s = timesheets[emp.id] || { hours: "0.00", gross: 0, fedTax: 0, stateTax: 0, countyTax: 0, ficaTax: 0, employerTax: 0, totalCost: 0, netPay: 0 }
       return {
         employee_id: emp.id, week_start_date: today, total_hours: parseFloat(s.hours),
         pay_rate_at_time: emp.baseRate, gross_pay: s.gross, fed_tax: s.fedTax, state_tax: s.stateTax,
@@ -271,48 +271,72 @@ export default function PineLakeApp() {
     else alert("Error: " + error.message)
   }
 
+  function updateScheduleCell(day, empId, value) {
+    setSchedules(prev => {
+      const next = { ...prev }; if (!next[activeWeekKey]) next[activeWeekKey] = {}; if (!next[activeWeekKey][day]) next[activeWeekKey][day] = {}; next[activeWeekKey][day][empId] = value; return next
+    })
+  }
+
+  function handleCopyPreviousWeek() {
+    const prevWkDate = new Date(targetDate)
+    prevWkDate.setDate(prevWkDate.getDate() - 7)
+    const prevWkKey = getSundayKey(prevWkDate.toISOString().split('T')[0])
+    if (!schedules[prevWkKey]) return alert("No schedule found for the previous week to copy.")
+    setSchedules(prev => {
+      const next = { ...prev }; next[activeWeekKey] = JSON.parse(JSON.stringify(prev[prevWkKey])); return next
+    })
+  }
+
+  // FIXED: activeWorkers calculation defined here so it is available to the entire component
+  const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN").length
+
   // --- SCREENS ---
   if(screen==="kiosk") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
       <div className="px-5 sm:px-7 pt-5 border-b border-[#1a2535] mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 gap-3 sm:gap-0">
           <div>
             <div className="text-[10px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div>
-            <h1 className="text-[22px] font-bold text-[#e8f4f8] m-0">Time Clock Kiosk</h1>
+            <h1 className="text-[22px] font-bold text-[#e8f4f8] m-0 leading-none">Time Clock Kiosk</h1>
           </div>
           <div className="text-left sm:text-right">
-            <div className="font-mono text-[26px] font-semibold text-[#7ec8e3]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div>
-            <div className="text-[11px] text-[#4a6a8a]">{now.toLocaleDateString([],{weekday:"long",month:"short",day:"numeric"})}</div>
+            <div className="font-mono text-[26px] font-semibold text-[#7ec8e3] leading-none">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div>
+            <div className="text-[11px] text-[#4a6a8a] mt-1">{now.toLocaleDateString([],{weekday:"long",month:"short",day:"numeric"})}</div>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 pb-3.5 sm:items-center">
-          <div className="text-[11px] text-[#4a6a8a] font-mono"><span className="text-[#06d6a0] font-bold">{activeWorkers}</span> active | {employees.length} total staff</div>
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 pb-3.5 sm:items-center">
+          <div className="text-[11px] text-[#4a6a8a] font-mono">
+            <span className="text-[#06d6a0] font-bold">{activeWorkers}</span> active on clock | {employees.length} total staff
+          </div>
           <div className="sm:ml-auto flex gap-2">
-            <button onClick={()=>setScreen("portal-select")} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-1.5 px-3.5 rounded-md font-mono text-[10px]">Employee Portal</button>
-            <button onClick={()=>setScreen("manager-login")} className="bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md font-mono text-[10px]">Manager</button>
+            <button onClick={()=>setScreen("portal-select")} className="bg-transparent border border-[#2a4060] text-[#7ec8e3] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Employee Portal</button>
+            <button onClick={()=>setScreen("manager-login")} className="bg-transparent border border-[#1e2a38] text-[#4a6a8a] py-1.5 px-3.5 rounded-md cursor-pointer font-mono text-[10px] hover:bg-[#1e2a38] transition-colors">Manager</button>
           </div>
         </div>
       </div>
-      <div className="px-5 sm:px-7 flex flex-col gap-3">
-        {employees.map(emp=>{
-          const r = clockedIn[emp.id]; const isW = r?.status === "IN"; const isB = r?.status === "BREAK"; const isO = !r; const el = getElapsed(emp.id); const col = ROLE_COLORS[emp.role]||"#7ec8e3"
-          return (
-            <div key={emp.id} className={`flex flex-col sm:flex-row items-start sm:items-center gap-3.5 px-4 py-3 rounded-xl border-[1.5px] ${isW ? "bg-[#0d1f14] border-[#06d6a0]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38]"}`}>
-              <div className="flex items-center gap-3.5 w-full sm:w-auto">
-                <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
-                <div className="flex-1">
-                  <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
-                  <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
+      <div className="px-5 sm:px-7">
+        <div className="text-[12px] text-[#3a5a7a] text-center mb-5 font-mono tracking-[0.08em]">CHOOSE AN ACTION TO AUTHENTICATE</div>
+        <div className="flex flex-col gap-3">
+          {employees.map(emp=>{
+            const rec = clockedIn[emp.id]; const isWorking = rec?.status === "IN"; const isOnBreak = rec?.status === "BREAK"; const isOut = !rec; const elapsed = getElapsed(emp.id); const col = ROLE_COLORS[emp.role]||"#7ec8e3"
+            return (
+              <div key={emp.id} className={`flex flex-col sm:flex-row items-start sm:items-center gap-3.5 px-4.5 py-3.5 rounded-xl text-left w-full transition-all duration-300 border-[1.5px] ${isWorking ? "bg-[#0d1f14] border-[#06d6a0]" : isOnBreak ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38]"}`}>
+                <div className="flex items-center gap-3.5 w-full sm:w-auto">
+                  <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: col}}>{emp.avatar}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                    <div className="text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:ml-auto justify-start sm:justify-end items-center mt-2 sm:mt-0 border-t border-[#1e2a38] sm:border-t-0 pt-2 sm:pt-0">
+                  {isOut && <button onClick={()=>{ if(checkCanClockIn(emp)){ setAuthEmp(emp); setPendingAction("IN"); setScreen("emp-auth") } }} className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono hover:opacity-90">CLOCK IN</button>}
+                  {isOnBreak && <><div className="text-[#fca311] font-mono text-[14px] font-bold mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp); setPendingAction("BREAK_END"); setScreen("emp-auth")}} className="bg-[#fca311] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono hover:opacity-90">END BREAK</button></>}
+                  {isWorking && <><div className="text-[#06d6a0] font-mono text-[15px] font-bold mr-2 tracking-wide">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp); setPendingAction("BREAK_START"); setScreen("emp-auth")}} className="bg-transparent border border-[#1e2a38] text-[#e8e8e8] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono hover:bg-[#1e2a38]">BREAK</button><button onClick={()=>{setAuthEmp(emp); setPendingAction("OUT"); setScreen("emp-auth")}} className="bg-[#ef476f] text-[#0d1117] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono hover:opacity-90">CLOCK OUT</button></>}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:ml-auto justify-start sm:justify-end items-center mt-2 sm:mt-0 border-t border-[#1e2a38] sm:border-0 pt-2 sm:pt-0">
-                {isO && <button onClick={()=>{ if(checkCanClockIn(emp)){ setAuthEmp(emp); setPendingAction("IN"); setScreen("emp-auth") } }} className="bg-[#06d6a0] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono">CLOCK IN</button>}
-                {isB && <><div className="text-[#fca311] font-mono text-[14px] font-bold mr-2">{fmtElapsed(el)}</div><button onClick={()=>{setAuthEmp(emp); setPendingAction("BREAK_END"); setScreen("emp-auth")}} className="bg-[#fca311] text-[#0d1117] text-[11px] font-bold py-1.5 px-3.5 rounded-md font-mono">END BREAK</button></>}
-                {isW && <><div className="text-[#06d6a0] font-mono text-[15px] font-bold mr-2">{fmtElapsed(el)}</div><button onClick={()=>{setAuthEmp(emp); setPendingAction("BREAK_START"); setScreen("emp-auth")}} className="bg-transparent border border-[#1e2a38] text-[#e8e8e8] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono">BREAK</button><button onClick={()=>{setAuthEmp(emp); setPendingAction("OUT"); setScreen("emp-auth")}} className="bg-[#ef476f] text-[#0d1117] text-[11px] font-bold py-1.5 px-3 rounded-md font-mono">CLOCK OUT</button></>}
-              </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -323,6 +347,31 @@ export default function PineLakeApp() {
         <div className="w-full max-w-[340px]">
           <div className="text-center mb-5"><div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: ROLE_COLORS[authEmp.role]}}>{authEmp.avatar}</div><div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div></div>
           {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>:<PinPad correctPin={authEmp.pin} label={`CONFIRM ${pendingAction}`} onSuccess={()=>handleEmpAuth(authEmp)} onCancel={()=>setScreen("kiosk")}/>}
+        </div>
+      </div>
+    )
+  }
+
+  if(screen==="portal-select") return (
+    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
+      <div className="px-5 sm:px-7 pt-5 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center"><h1 className="text-[22px] font-bold text-[#e8f4f8] m-0">Select Profile</h1><button onClick={()=>setScreen("kiosk")} className="text-[#4a6a8a] font-mono text-[10px] hover:text-[#e8e8e8]">Back</button></div>
+      <div className="px-5 sm:px-7 flex flex-col gap-2.5">
+        {employees.map(emp=>(
+          <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("portal-auth")}} className="flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl cursor-pointer text-left w-full bg-[#131b27] border-[1.5px] border-[#1e2a38] hover:border-[#2a4060]">
+            <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold text-[#111] font-mono" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
+            <div className="flex-1"><div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div><div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div></div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
+  if(screen==="portal-auth"&&authEmp){
+    return (
+      <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
+        <div className="w-full max-w-[340px]">
+          <div className="text-center mb-7"><div className="w-16 h-16 rounded-full mx-auto mb-3.5 flex items-center justify-center text-[20px] font-bold text-[#111] font-mono" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[18px] font-bold text-[#e8f4f8]">{authEmp.name}</div></div>
+          {authEmp.authMethod==="face"?<FaceScanUI onSuccess={()=>{setPortalEmp(authEmp); setScreen("portal-dashboard")}} onCancel={()=>setScreen("portal-select")}/>:<PinPad correctPin={authEmp.pin} label="PIN FOR PORTAL" onSuccess={()=>{setPortalEmp(authEmp); setScreen("portal-dashboard")}} onCancel={()=>setScreen("portal-select")}/>}
         </div>
       </div>
     )
@@ -359,15 +408,28 @@ export default function PineLakeApp() {
     )
   }
 
+  if(screen==="manager-login") return (
+    <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] flex items-center justify-center p-6">
+      <div className="w-full max-w-[340px]">
+        <ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard"); setMgrTab("timesheets")}} onCancel={()=>setScreen("kiosk")}/>
+      </div>
+    </div>
+  )
+
   if(screen==="manager-dashboard"&&managerSession) {
+    const totalFacilityStats = employees.reduce((a, emp) => {
+      const stats = timesheets[emp.id] || { gross: 0, employerTax: 0, totalCost: 0, hours: 0 }
+      return { gross: a.gross + parseFloat(stats.gross || 0), employerTax: a.employerTax + parseFloat(stats.employerTax || 0), totalCost: a.totalCost + parseFloat(stats.totalCost || 0), hours: a.hours + parseFloat(stats.hours || 0) }
+    }, { gross: 0, employerTax: 0, totalCost: 0, hours: 0 })
+
     return (
       <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[1020px] mx-auto pb-15 p-5">
         {showAddEmp&&<EmployeeForm title="Add Employee" saveLabel="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
         {editEmp&&<EmployeeForm title="Edit Employee" saveLabel="Save Changes" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
         <div className="border-b border-[#1a2535] mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h1 className="text-[22px] font-bold">Manager Dashboard</h1>
-            <button onClick={()=>setScreen("kiosk")} className="bg-[#1e2a38] py-1.5 px-3 rounded text-[10px]">Kiosk</button>
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 gap-3">
+            <div><h1 className="text-[22px] font-bold">Manager Dashboard</h1></div>
+            <button onClick={()=>setScreen("kiosk")} className="bg-[#1e2a38] py-1.5 px-3 rounded text-[10px] w-fit">Kiosk</button>
           </div>
           <div className="flex gap-4">
             <button style={managerTab==="employees"?tabBtnActiveStyle:tabBtnStyle} onClick={()=>setMgrTab("employees")}>Employees</button>
