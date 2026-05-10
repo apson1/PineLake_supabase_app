@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { supabase } from "./lib/supabase"
 import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
@@ -64,13 +64,11 @@ export default function PineLakeApp() {
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
   const activeWeekKey = getSundayKey(targetDate)
 
-  // Clock Ticker
   useEffect(()=>{
     const iv=setInterval(()=>setNow(new Date()),1000)
     return ()=>clearInterval(iv)
   },[])
 
-  // Load Initial Data
   useEffect(()=>{
     async function loadData() {
       const { data: empData } = await supabase.from("employees").select("*").order("id")
@@ -116,7 +114,6 @@ export default function PineLakeApp() {
     loadData()
   },[])
 
-  // Real-time Subscriptions
   useEffect(() => {
     if (employees.length === 0) return
     const channel = supabase.channel("live-clock").on("postgres_changes", { event: "INSERT", schema: "public", table: "clock_logs" }, (payload) => {
@@ -220,19 +217,55 @@ export default function PineLakeApp() {
   }
   const timesheets = getTimesheetSummary()
 
-  // --- ACTIONS ---
+  // MISSING FUNCTION FIXED HERE
+  async function handleSaveEmployee(empData) {
+    const dbPayload = {
+      name: empData.name,
+      role: empData.role,
+      base_rate: empData.baseRate,
+      bonus_rate: empData.bonusRate,
+      pin: empData.pin,
+      auth_method: empData.authMethod,
+      avatar: empData.avatar,
+      fed_tax_rate: empData.fedTaxRate,
+      state_tax_rate: empData.stateTaxRate,
+      county_tax_rate: empData.countyTaxRate,
+      fica_tax_rate: empData.ficaTaxRate
+    }
+
+    if (empData.id && typeof empData.id === "number" && String(empData.id).length < 10) {
+      // Update existing
+      const { error } = await supabase.from("employees").update(dbPayload).eq("id", empData.id)
+      if (!error) {
+        setEmployees(p => p.map(e => e.id === empData.id ? { ...empData } : e))
+      } else {
+        alert("Error updating employee: " + error.message)
+      }
+    } else {
+      // Insert new
+      const { data, error } = await supabase.from("employees").insert([dbPayload]).select()
+      if (!error && data) {
+        const saved = data[0]
+        setEmployees(p => [...p, { 
+          id: saved.id, name: saved.name, role: saved.role, baseRate: saved.base_rate, 
+          bonusRate: saved.bonus_rate, pin: saved.pin, authMethod: saved.auth_method, 
+          avatar: saved.avatar, fedTaxRate: saved.fed_tax_rate, stateTaxRate: saved.state_tax_rate,
+          countyTaxRate: saved.county_tax_rate, ficaTaxRate: saved.fica_tax_rate
+        }])
+      } else {
+        alert("Error adding employee: " + error.message)
+      }
+    }
+  }
+
   async function doClockAction(emp, actionType) {
-    // SECURE LOGIN
     const { error: authError } = await supabase.auth.signInWithPassword({
       email: `emp_${emp.id}@pinelake.internal`,
       password: emp.pin
     });
-
     if (authError) return alert("Security Error: Identity could not be verified.")
-
     const { error } = await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: actionType }])
     if (error) alert("Database Error: " + error.message)
-    
     await supabase.auth.signOut()
   }
 
@@ -245,7 +278,7 @@ export default function PineLakeApp() {
     if (Object.values(clockedIn).length > 0) return alert("Stop: Everyone must clock out before finalizing.")
     const today = new Date().toISOString().split("T")[0]
     const records = employees.map(emp => {
-      const s = timesheets[emp.id] || { hours: "0.00", gross: 0, fedTax: 0, stateTax: 0, countyTax: 0, ficaTax: 0, employerTax: 0, totalCost: 0, netPay: 0 }
+      const s = timesheets[emp.id] || { hours: "0.00", gross: 0 }
       return {
         employee_id: emp.id, week_start_date: today, total_hours: parseFloat(s.hours),
         pay_rate_at_time: emp.baseRate, gross_pay: s.gross, fed_tax: s.fedTax, state_tax: s.stateTax,
@@ -287,10 +320,9 @@ export default function PineLakeApp() {
     })
   }
 
-  // FIXED: activeWorkers calculation defined here so it is available to the entire component
   const activeWorkers = Object.values(clockedIn).filter(state => state.status === "IN").length
 
-  // --- SCREENS ---
+  // --- RENDERING SCREENS ---
   if(screen==="kiosk") return (
     <div className="font-serif bg-[#0d1117] min-h-screen text-[#e8e8e8] max-w-[780px] mx-auto pb-10">
       <div className="px-5 sm:px-7 pt-5 border-b border-[#1a2535] mb-6">
