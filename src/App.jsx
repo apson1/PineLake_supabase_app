@@ -53,8 +53,10 @@ export default function PineLakeApp() {
   const [portalEmp, setPortalEmp] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
   const [managerSession, setMgrSession] = useState(null)
+  
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
+  
   const [showAddEmp, setShowAddEmp] = useState(false)
   const [editEmp, setEditEmp] = useState(null)
   const [now, setNow] = useState(new Date())
@@ -84,23 +86,16 @@ export default function PineLakeApp() {
       const { data: logs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
       if (logs) {
         setAllLogs(logs)
-        const cState = {}
-        const rLogs = []
-        const seen = new Set()
+        const cState = {}; const rLogs = []; const seen = new Set()
         logs.forEach(log => {
           if (!seen.has(log.employee_id)) {
             seen.add(log.employee_id)
-            if (log.action === "IN" || log.action === "BREAK_END") {
-              cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
-            } else if (log.action === "BREAK_START") {
-              cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
-            }
+            if (log.action === "IN" || log.action === "BREAK_END") cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
+            else if (log.action === "BREAK_START") cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
           }
           if (rLogs.length < 50) {
             const emp = empData?.find(e => e.id === log.employee_id)
-            if (emp) {
-              rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
-            }
+            if (emp) rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
           }
         })
         setClockedIn(cState)
@@ -151,15 +146,12 @@ export default function PineLakeApp() {
     const summary = {}
     employees.forEach(emp => {
       const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-      let weekdayMs = 0
-      let weekendMs = 0
-      let lastIn = null
+      let weekdayMs = 0, weekendMs = 0, lastIn = null
       
       empLogs.forEach(log => {
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) lastIn = new Date(log.created_at).getTime()
         else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
-          const shiftStart = new Date(lastIn)
-          const dayOfWeek = shiftStart.getDay()
+          const shiftStart = new Date(lastIn), dayOfWeek = shiftStart.getDay()
           const duration = new Date(log.created_at).getTime() - lastIn
           if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
           else weekdayMs += duration
@@ -167,22 +159,17 @@ export default function PineLakeApp() {
         }
       })
       if (lastIn) {
-        const dayOfWeek = new Date(lastIn).getDay()
-        const duration = Date.now() - lastIn
+        const dayOfWeek = new Date(lastIn).getDay(), duration = Date.now() - lastIn
         if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
         else weekdayMs += duration
       }
       
-      const weekdayH = weekdayMs / 3600000
-      const weekendH = weekendMs / 3600000
-      const regH = Math.min(weekdayH, 40)
-      const otH = Math.max(0, weekdayH - 40) + weekendH
+      const weekdayH = weekdayMs / 3600000, weekendH = weekendMs / 3600000
+      const regH = Math.min(weekdayH, 40), otH = Math.max(0, weekdayH - 40) + weekendH
       const gross = (regH * emp.baseRate) + (otH * emp.baseRate * 1.5) + ((regH + otH) * (emp.bonusRate || 0))
       const employerTax = gross * 0.1095
-      const fed = gross * (emp.fedTaxRate / 100)
-      const state = gross * (emp.stateTaxRate / 100)
-      const county = gross * (emp.countyTaxRate / 100)
-      const fica = gross * (emp.ficaTaxRate / 100)
+      const fed = gross * (emp.fedTaxRate / 100), state = gross * (emp.stateTaxRate / 100)
+      const county = gross * (emp.countyTaxRate / 100), fica = gross * (emp.ficaTaxRate / 100)
       const totalEmpTaxes = fed + state + county + fica
 
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
@@ -206,10 +193,8 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       csv += `"${e?.name || r.employee_id}",${r.week_start_date},${r.total_hours},${r.pay_rate_at_time},${r.gross_pay},${r.fed_tax},${r.state_tax},${r.county_tax},${r.fica_tax},${r.employer_tax},${r.total_cost},${r.net_pay}\n`
     })
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
-    link.href = url
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
     link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`
     link.click()
   }
@@ -432,8 +417,8 @@ export default function PineLakeApp() {
 
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[1000px] mx-auto pb-20 px-4 sm:px-6">
-        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
-        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
+        {showAddEmp && <EmployeeForm title="Add Employee" saveLabel="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
+        {editEmp && <EmployeeForm title="Edit Details" saveLabel="Save Changes" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
         
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
