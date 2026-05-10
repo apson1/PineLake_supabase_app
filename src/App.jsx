@@ -4,6 +4,7 @@ import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveS
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
 import * as XLSX from "xlsx"
 
+// --- UTILS ---
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() - d.getDay())
@@ -47,15 +48,13 @@ export default function PineLakeApp() {
   const [schedules, setSchedules] = useState({})
   const [clockedIn, setClockedIn] = useState({})
   const [allLogs, setAllLogs] = useState([])
+  const [clockLog, setClockLog] = useState([])
   const [screen, setScreen] = useState("kiosk")
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
-  const [pendingAction, setPendingAction] = useState(null)
   const [managerSession, setMgrSession] = useState(null)
-  
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
-  
   const [showAddEmp, setShowAddEmp] = useState(false)
   const [editEmp, setEditEmp] = useState(null)
   const [now, setNow] = useState(new Date())
@@ -98,6 +97,7 @@ export default function PineLakeApp() {
           }
         })
         setClockedIn(cState)
+        setClockLog(rLogs)
       }
 
       const { data: schedData } = await supabase.from("schedules").select("*")
@@ -128,6 +128,8 @@ export default function PineLakeApp() {
         else delete next[emp.id]
         return next
       })
+      const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
     }).subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [employees])
@@ -166,6 +168,7 @@ export default function PineLakeApp() {
       const fed = gross * (emp.fedTaxRate / 100), state = gross * (emp.stateTaxRate / 100)
       const county = gross * (emp.countyTaxRate / 100), fica = gross * (emp.ficaTaxRate / 100)
       const totalEmpTaxes = fed + state + county + fica
+
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
 
       summary[emp.id] = {
@@ -233,16 +236,19 @@ export default function PineLakeApp() {
     }
   }
 
+  // UPDATED: Now uses state to route rather than full page reload
   async function doClockAction(emp, type) {
     const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
     if (authError) return alert("Security Error: Identity could not be verified.")
     await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: type }])
     await supabase.auth.signOut()
-    window.location.reload()
+    setAuthEmp(null)
+    setScreen("kiosk")
   }
 
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
 
+  // --- KIOSK HOME SCREEN (NEW FLOW) ---
   if(screen === "kiosk") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
       <div className="max-w-[700px] mx-auto pb-10 px-4 sm:px-6">
@@ -268,21 +274,23 @@ export default function PineLakeApp() {
         </div>
         <div className="flex flex-col gap-3">
           {employees.map(emp => {
-            const s = clockedIn[emp.id], isW = s?.status === "IN", isB = s?.status === "BREAK", isO = !s
+            const s = clockedIn[emp.id], isW = s?.status === "IN", isB = s?.status === "BREAK"
             const elapsed = getElapsed(emp.id)
             return (
-              <div key={emp.id} className={`flex flex-col sm:flex-row items-center gap-4 p-3.5 rounded-xl border transition-all ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38]"}`}>
-                <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
-                <div className="flex-1 text-center sm:text-left">
-                  <div className="text-[13px] font-bold text-[#e8f4f8]">{emp.name}</div>
-                  <div className="text-[10px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div>
+              <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px]" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
+                  <div>
+                    <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                    <div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div>
+                  </div>
                 </div>
-                <div className="flex flex-wrap justify-center sm:justify-end items-center gap-2">
-                  {isO && <button onClick={()=>{setAuthEmp(emp);setPendingAction("IN");setScreen("emp-auth")}} className="bg-[#06d6a0] text-[#0d1117] text-[10px] font-bold py-2 px-5 rounded-lg">CLOCK IN</button>}
-                  {isB && <><div className="text-[#fca311] font-mono font-bold text-[13px] mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp);setPendingAction("BREAK_END");setScreen("emp-auth")}} className="bg-[#fca311] text-[#0d1117] py-2 px-4 rounded-lg text-[10px] font-bold uppercase hover:opacity-90 transition-opacity">END BREAK</button></>}
-                  {isW && <><div className="text-[#06d6a0] font-mono font-bold text-[13px] mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp);setPendingAction("BREAK_START");setScreen("emp-auth")}} className="bg-[#1e2a38] hover:bg-[#2a4060] text-[#e8f4f8] py-2 px-4 rounded-lg text-[10px] font-bold uppercase transition-colors">START BREAK</button><button onClick={()=>{setAuthEmp(emp);setPendingAction("OUT");setScreen("emp-auth")}} className="bg-[#ef476f] text-[#0d1117] py-2 px-4 rounded-lg text-[10px] font-bold uppercase hover:opacity-90 transition-opacity">CLOCK OUT</button></>}
+                <div className="text-right">
+                  {isW && <div className="text-[#06d6a0] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
+                  {isB && <div className="text-[#fca311] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
+                  {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select ➔</div>}
                 </div>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -290,16 +298,49 @@ export default function PineLakeApp() {
     </div>
   )
 
-  if(screen === "emp-auth") return (
+  // --- NEW AUTH SCREEN ---
+  if(screen === "kiosk-auth" && authEmp) return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-      <div className="w-full max-w-[300px]">
-        <div className="text-center mb-6"><div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[16px]" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[16px] font-bold">{authEmp.name}</div></div>
-        {authEmp.authMethod === "face" ? <FaceScanUI onSuccess={()=>doClockAction(authEmp, pendingAction)} onCancel={()=>setScreen("kiosk")}/> : 
-          <PinPad correctPin={authEmp.pin} label={pendingAction} onSuccess={()=>doClockAction(authEmp, pendingAction)} onCancel={()=>setScreen("kiosk")}/>}
+      <div className="w-full max-w-[320px]">
+        <div className="text-center mb-6"><div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[20px]" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[20px] font-bold">{authEmp.name}</div></div>
+        {authEmp.authMethod === "face" ? <FaceScanUI onSuccess={()=>setScreen("kiosk-action-hub")} onCancel={()=>setScreen("kiosk")}/> : 
+          <PinPad correctPin={authEmp.pin} label="ENTER PIN" onSuccess={()=>setScreen("kiosk-action-hub")} onCancel={()=>setScreen("kiosk")}/>}
       </div>
     </div>
   )
 
+  // --- NEW ACTION HUB SCREEN ---
+  if(screen === "kiosk-action-hub" && authEmp) {
+    const s = clockedIn[authEmp.id]; const isW = s?.status === "IN"; const isB = s?.status === "BREAK"; const isO = !s;
+    const elapsed = getElapsed(authEmp.id)
+    return (
+      <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
+        <div className="w-full max-w-[400px] bg-[#131b27] border border-[#1e2a38] rounded-2xl p-6 shadow-2xl text-center">
+           <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-xl" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div>
+           <h2 className="text-2xl font-bold mb-1">Hello, {authEmp.name.split(" ")[0]}</h2>
+           <div className="text-[#4a6a8a] text-[11px] mb-6 uppercase tracking-widest font-mono">Select an Action</div>
+
+           {isW && <div className="text-[36px] font-mono font-bold text-[#06d6a0] mb-6">{fmtElapsed(elapsed)}</div>}
+           {isB && <div className="text-[36px] font-mono font-bold text-[#fca311] mb-6">{fmtElapsed(elapsed)}</div>}
+
+           <div className="flex flex-col gap-4">
+              {isO && <button onClick={()=>doClockAction(authEmp, "IN")} className="bg-[#06d6a0] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">Clock In</button>}
+              {isW && (
+                 <>
+                   <button onClick={()=>doClockAction(authEmp, "BREAK_START")} className="bg-[#1e2a38] text-[#e8f4f8] hover:bg-[#2a4060] border border-[#2a4060] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95">Start Break</button>
+                   <button onClick={()=>doClockAction(authEmp, "OUT")} className="bg-[#ef476f] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">Clock Out</button>
+                 </>
+              )}
+              {isB && <button onClick={()=>doClockAction(authEmp, "BREAK_END")} className="bg-[#fca311] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">End Break</button>}
+           </div>
+
+           <button onClick={()=>setScreen("kiosk")} className="mt-8 text-[#4a6a8a] text-[12px] font-bold uppercase tracking-widest hover:text-[#e8f4f8] transition-colors">Cancel</button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- PORTAL SCREENS ---
   if(screen === "portal-select") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
       <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center"><h1 className="text-[18px] font-bold">Select Profile</h1><button onClick={()=>setScreen("kiosk")} className="text-[10px] text-[#4a6a8a] font-mono uppercase tracking-widest hover:text-[#e8e8e8] transition-colors">Back</button></div>
@@ -355,6 +396,7 @@ export default function PineLakeApp() {
     )
   }
 
+  // --- MANAGER SCREENS ---
   if(screen === "manager-login") return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
       <div className="w-full max-w-[300px]"><ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard")}} onCancel={()=>setScreen("kiosk")}/></div>
