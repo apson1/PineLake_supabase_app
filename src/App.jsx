@@ -4,7 +4,6 @@ import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveS
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
 import * as XLSX from "xlsx"
 
-// --- UTILS ---
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() - d.getDay())
@@ -52,6 +51,7 @@ export default function PineLakeApp() {
   const [screen, setScreen] = useState("kiosk")
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
+  const [pendingAction, setPendingAction] = useState(null)
   const [managerSession, setMgrSession] = useState(null)
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
@@ -84,16 +84,23 @@ export default function PineLakeApp() {
       const { data: logs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
       if (logs) {
         setAllLogs(logs)
-        const cState = {}; const rLogs = []; const seen = new Set()
+        const cState = {}
+        const rLogs = []
+        const seen = new Set()
         logs.forEach(log => {
           if (!seen.has(log.employee_id)) {
             seen.add(log.employee_id)
-            if (log.action === "IN" || log.action === "BREAK_END") cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
-            else if (log.action === "BREAK_START") cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
+            if (log.action === "IN" || log.action === "BREAK_END") {
+              cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
+            } else if (log.action === "BREAK_START") {
+              cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
+            }
           }
           if (rLogs.length < 50) {
             const emp = empData?.find(e => e.id === log.employee_id)
-            if (emp) rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
+            if (emp) {
+              rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
+            }
           }
         })
         setClockedIn(cState)
@@ -144,12 +151,15 @@ export default function PineLakeApp() {
     const summary = {}
     employees.forEach(emp => {
       const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-      let weekdayMs = 0, weekendMs = 0, lastIn = null
+      let weekdayMs = 0
+      let weekendMs = 0
+      let lastIn = null
       
       empLogs.forEach(log => {
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) lastIn = new Date(log.created_at).getTime()
         else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
-          const shiftStart = new Date(lastIn), dayOfWeek = shiftStart.getDay()
+          const shiftStart = new Date(lastIn)
+          const dayOfWeek = shiftStart.getDay()
           const duration = new Date(log.created_at).getTime() - lastIn
           if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
           else weekdayMs += duration
@@ -157,16 +167,22 @@ export default function PineLakeApp() {
         }
       })
       if (lastIn) {
-        const dayOfWeek = new Date(lastIn).getDay(), duration = Date.now() - lastIn
+        const dayOfWeek = new Date(lastIn).getDay()
+        const duration = Date.now() - lastIn
         if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
         else weekdayMs += duration
       }
-      const weekdayH = weekdayMs / 3600000, weekendH = weekendMs / 3600000
-      const regH = Math.min(weekdayH, 40), otH = Math.max(0, weekdayH - 40) + weekendH
+      
+      const weekdayH = weekdayMs / 3600000
+      const weekendH = weekendMs / 3600000
+      const regH = Math.min(weekdayH, 40)
+      const otH = Math.max(0, weekdayH - 40) + weekendH
       const gross = (regH * emp.baseRate) + (otH * emp.baseRate * 1.5) + ((regH + otH) * (emp.bonusRate || 0))
       const employerTax = gross * 0.1095
-      const fed = gross * (emp.fedTaxRate / 100), state = gross * (emp.stateTaxRate / 100)
-      const county = gross * (emp.countyTaxRate / 100), fica = gross * (emp.ficaTaxRate / 100)
+      const fed = gross * (emp.fedTaxRate / 100)
+      const state = gross * (emp.stateTaxRate / 100)
+      const county = gross * (emp.countyTaxRate / 100)
+      const fica = gross * (emp.ficaTaxRate / 100)
       const totalEmpTaxes = fed + state + county + fica
 
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
@@ -190,7 +206,12 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       csv += `"${e?.name || r.employee_id}",${r.week_start_date},${r.total_hours},${r.pay_rate_at_time},${r.gross_pay},${r.fed_tax},${r.state_tax},${r.county_tax},${r.fica_tax},${r.employer_tax},${r.total_cost},${r.net_pay}\n`
     })
-    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`; link.click()
+    const blob = new Blob([csv], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
   }
 
   async function handleExportXLSX() {
@@ -200,7 +221,8 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       return { Employee: e?.name || r.employee_id, Date: r.week_start_date, Hours: r.total_hours, Rate: r.pay_rate_at_time, Gross: r.gross_pay, Fed: r.fed_tax, State: r.state_tax, County: r.county_tax, FICA: r.fica_tax, "Er Tax": r.employer_tax, "Total Cost": r.total_cost, Net: r.net_pay }
     })
-    const ws = XLSX.utils.json_to_sheet(sheet), wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(sheet)
+    const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Payroll")
     XLSX.writeFile(wb, `Payroll_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
@@ -236,7 +258,6 @@ export default function PineLakeApp() {
     }
   }
 
-  // UPDATED: Now uses state to route rather than full page reload
   async function doClockAction(emp, type) {
     const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
     if (authError) return alert("Security Error: Identity could not be verified.")
@@ -248,7 +269,6 @@ export default function PineLakeApp() {
 
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
 
-  // --- KIOSK HOME SCREEN (NEW FLOW) ---
   if(screen === "kiosk") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
       <div className="max-w-[700px] mx-auto pb-10 px-4 sm:px-6">
@@ -274,7 +294,9 @@ export default function PineLakeApp() {
         </div>
         <div className="flex flex-col gap-3">
           {employees.map(emp => {
-            const s = clockedIn[emp.id], isW = s?.status === "IN", isB = s?.status === "BREAK"
+            const s = clockedIn[emp.id]
+            const isW = s?.status === "IN"
+            const isB = s?.status === "BREAK"
             const elapsed = getElapsed(emp.id)
             return (
               <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
@@ -288,7 +310,7 @@ export default function PineLakeApp() {
                 <div className="text-right">
                   {isW && <div className="text-[#06d6a0] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
                   {isB && <div className="text-[#fca311] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
-                  {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select ➔</div>}
+                  {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select</div>}
                 </div>
               </button>
             )
@@ -298,7 +320,6 @@ export default function PineLakeApp() {
     </div>
   )
 
-  // --- NEW AUTH SCREEN ---
   if(screen === "kiosk-auth" && authEmp) return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
       <div className="w-full max-w-[320px]">
@@ -309,9 +330,11 @@ export default function PineLakeApp() {
     </div>
   )
 
-  // --- NEW ACTION HUB SCREEN ---
   if(screen === "kiosk-action-hub" && authEmp) {
-    const s = clockedIn[authEmp.id]; const isW = s?.status === "IN"; const isB = s?.status === "BREAK"; const isO = !s;
+    const s = clockedIn[authEmp.id]
+    const isW = s?.status === "IN"
+    const isB = s?.status === "BREAK"
+    const isO = !s
     const elapsed = getElapsed(authEmp.id)
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
@@ -340,7 +363,6 @@ export default function PineLakeApp() {
     )
   }
 
-  // --- PORTAL SCREENS ---
   if(screen === "portal-select") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
       <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center"><h1 className="text-[18px] font-bold">Select Profile</h1><button onClick={()=>setScreen("kiosk")} className="text-[10px] text-[#4a6a8a] font-mono uppercase tracking-widest hover:text-[#e8e8e8] transition-colors">Back</button></div>
@@ -396,7 +418,6 @@ export default function PineLakeApp() {
     )
   }
 
-  // --- MANAGER SCREENS ---
   if(screen === "manager-login") return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
       <div className="w-full max-w-[300px]"><ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard")}} onCancel={()=>setScreen("kiosk")}/></div>
@@ -448,6 +469,20 @@ export default function PineLakeApp() {
                 )
               })}
             </div>
+            {clockLog.length > 0 && (
+              <div className="mt-4">
+                <div className="text-[10px] text-[#3a4a5a] tracking-[0.15em] uppercase font-mono mb-3">Activity Log</div>
+                {clockLog.slice(0, 8).map((l, i) => (
+                  <div key={i} className="flex justify-between items-center bg-[#0d1117] p-2 rounded-lg mb-2 font-mono text-[11px]">
+                    <div className="flex gap-3">
+                      <span className={l.action === "IN" ? "text-[#06d6a0] font-bold" : "text-[#ef476f] font-bold"}>{l.action}</span>
+                      <span className="text-[#a0b8d0]">{l.emp}</span>
+                    </div>
+                    <span className="text-[#4a6a8a]">{l.time}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
