@@ -108,67 +108,105 @@ export function PinPad({ onSuccess, onCancel, correctPin, label }) {
 }
 
 export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
-  const [form,setForm]=useState(initial?{name:initial.name,workRole:initial.role,baseRate:String(initial.baseRate),bonusRate:String(initial.bonusRate||""),pin:initial.pin,authMethod:initial.authMethod}:{name:"",workRole:"Waterfront",baseRate:"",bonusRate:"",pin:"",authMethod:"pin"})
-  const [errors,setErrors]=useState({})
+  const [form, setForm] = useState(initial ? {
+    name: initial.name, workRole: initial.role, baseRate: String(initial.baseRate),
+    bonusRate: String(initial.bonusRate || ""), pin: initial.pin, authMethod: initial.authMethod,
+    fedTaxRate: String(initial.fedTaxRate ?? 12), stateTaxRate: String(initial.stateTaxRate ?? 5.5),
+    countyTaxRate: String(initial.countyTaxRate ?? 0), ficaTaxRate: String(initial.ficaTaxRate ?? 7.65)
+  } : {
+    name: "", workRole: "Waterfront", baseRate: "", bonusRate: "", pin: "", authMethod: "pin",
+    fedTaxRate: "12", stateTaxRate: "5.5", countyTaxRate: "0", ficaTaxRate: "7.65"
+  })
+  const [errors, setErrors] = useState({})
   
-  const f=(k,v)=>setForm(p=>({...p,[k]:v}))
+  const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
   
-  function validate(){
-    const e={}
-    if(!form.name.trim()) e.name="Required"
-    if(!form.baseRate||isNaN(form.baseRate)||Number(form.baseRate)<=0) e.baseRate="Valid rate required"
-    if(form.pin.length!==4||isNaN(form.pin)) e.pin="4-digit PIN required"
+  function validate() {
+    const e = {}
+    if (!form.name.trim()) e.name = "Required"
+    if (!form.baseRate || isNaN(form.baseRate) || +form.baseRate <= 0) e.baseRate = "Valid rate required"
+    if (form.pin.length !== 4 || isNaN(form.pin)) e.pin = "4-digit PIN required"
     setErrors(e)
-    return Object.keys(e).length === 0
+    return !Object.keys(e).length
   }
   
-  function submit(){
-    if(!validate()) return
-    const av=form.name.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)
+  function submit() {
+    if (!validate()) return
+    const av = form.name.trim().split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
     onSave({
-      id: initial?.id || Date.now(),
-      name: form.name.trim(),
-      role: form.workRole,
-      baseRate: parseFloat(form.baseRate),
-      bonusRate: parseFloat(form.bonusRate||0),
-      pin: form.pin,
-      authMethod: form.authMethod,
-      avatar: av
+      ...(initial || {}), id: initial?.id || Date.now(), name: form.name.trim(), role: form.workRole,
+      baseRate: parseFloat(form.baseRate), bonusRate: parseFloat(form.bonusRate || 0),
+      pin: form.pin, authMethod: form.authMethod, avatar: av,
+      fedTaxRate: parseFloat(form.fedTaxRate || 0), stateTaxRate: parseFloat(form.stateTaxRate || 0),
+      countyTaxRate: parseFloat(form.countyTaxRate || 0), ficaTaxRate: parseFloat(form.ficaTaxRate || 0)
     })
     onClose()
   }
-  
-  const base=parseFloat(form.baseRate)||0
-  
+
+  const inputStyle = { width: "100%", background: "#131b27", border: "1px solid #1e2a38", color: "#e8f4f8", padding: "10px 14px", borderRadius: 8, fontFamily: "'Bitter',serif", fontSize: 13, outline: "none" }
+  const labelStyle = { fontSize: 10, color: "#4a6a8a", letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "'JetBrains Mono',monospace", display: "block", mb: 6 }
+
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#0f1821",border:"1px solid #1e2a38",borderRadius:16,padding:"26px 26px 22px",width:"100%",maxWidth:440,maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
-          <div><div style={{fontSize:16,fontWeight:700,color:"#e8f4f8"}}>{title}</div><div style={{fontSize:11,color:"#4a6a8a",marginTop:2,fontFamily:"'JetBrains Mono',monospace"}}>Rate data is manager only</div></div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#4a6a8a",fontSize:20,cursor:"pointer"}}>X</button>
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+      <div className="bg-[#0f1821] border border-[#1e2a38] rounded-2xl p-6 w-full max-w-[440px] max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-5">
+          <div className="text-[16px] font-bold text-[#e8f4f8]">{title}</div>
+          <button onClick={onClose} className="text-[#4a6a8a] text-[20px]">✕</button>
         </div>
-        <Field label="Full Name" error={errors.name}><input placeholder="e.g. Sam Torres" value={form.name} onChange={e=>f("name",e.target.value)} style={{...inputStyle,border:"1px solid " + (errors.name?"#ef476f":"#1e2a38")}}/></Field>
-        <Field label="Work Role"><select value={form.workRole} onChange={e=>f("workRole",e.target.value)} style={{...inputStyle,outline:"none"}}>{WORK_ROLES.map(r=><option key={r}>{r}</option>)}</select></Field>
-        <div style={{background:"#0a1520",border:"1px solid #1a3050",borderRadius:10,padding:16,marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:12}}>LOCKED</span><span style={{fontSize:10,color:"#4a8a8a",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"'JetBrains Mono',monospace"}}>Compensation Manager Admin Only</span></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-            <div><label style={labelStyle}>Base Rate /hr</label><div style={{position:"relative"}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#4a6a8a",fontSize:13}}>$</span><input type="number" step="0.25" min="0" placeholder="0.00" value={form.baseRate} onChange={e=>f("baseRate",e.target.value)} style={{...inputStyle,paddingLeft:26,border:"1px solid " + (errors.baseRate?"#ef476f":"#1e2a38")}}/></div>{errors.baseRate&&<div style={{fontSize:11,color:"#ef476f",marginTop:4}}>{errors.baseRate}</div>}</div>
-            <div><label style={labelStyle}>OT Rate /hr</label><div style={{background:"#0d1117",border:"1px solid #1e2a38",borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",gap:6}}><span style={{color:"#4a6a8a",fontSize:13}}>$</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:base>0?"#f4a261":"#3a4a5a"}}>{base>0?multiply(base, 1.5).toFixed(2):"none"}</span><span style={{fontSize:9,color:"#3a4a5a",marginLeft:"auto"}}>auto 1.5x</span></div></div>
+        
+        <div className="mb-4">
+          <label style={labelStyle}>Full Name</label>
+          <input value={form.name} onChange={e=>f("name",e.target.value)} style={inputStyle} className={errors.name ? "border-[#ef476f]" : ""} />
+        </div>
+
+        {/* --- CHANGED TO SHIFT ROLE HERE --- */}
+        <div className="mb-4">
+          <label style={labelStyle}>Shift Role</label>
+          <select value={form.workRole} onChange={e=>f("workRole",e.target.value)} style={inputStyle}>
+            {["Waterfront","Concessions","Activities","Lifeguard","Gate","Maintenance","Events"].map(r=><option key={r}>{r}</option>)}
+          </select>
+        </div>
+
+        <div className="bg-[#0a1520] border border-[#1a3050] rounded-xl p-4 mb-4">
+          <div className="text-[10px] text-[#4a8a8a] tracking-widest uppercase font-mono mb-3">Compensation</div>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label style={labelStyle}>Base Rate /hr</label>
+              <input type="number" step="0.25" value={form.baseRate} onChange={e=>f("baseRate",e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Bonus /hr</label>
+              <input type="number" step="0.25" value={form.bonusRate} onChange={e=>f("bonusRate",e.target.value)} style={inputStyle} />
+            </div>
           </div>
-          <Field label="Bonus Rate /hr (optional)"><div style={{position:"relative"}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#4a6a8a",fontSize:13}}>$</span><input type="number" step="0.25" min="0" placeholder="0.00" value={form.bonusRate} onChange={e=>f("bonusRate",e.target.value)} style={{...inputStyle,paddingLeft:26}}/></div></Field>
         </div>
-        <label style={{...labelStyle,display:"block",marginBottom:8}}>Clock In Authentication</label>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-          {[{val:"pin",icon:"NUM",label:"PIN Code",sub:"4 digit"},{val:"face",icon:"FACE",label:"Face ID",sub:"Apple biometric"}].map(opt=>(
-            <button key={opt.val} onClick={()=>f("authMethod",opt.val)} style={{padding:"12px",borderRadius:8,cursor:"pointer",textAlign:"center",background:form.authMethod===opt.val?"#0e2030":"#131b27",border:"1px solid " + (form.authMethod===opt.val?"#7ec8e3":"#1e2a38")}}>
-              <div style={{fontSize:12,fontWeight:600,color:form.authMethod===opt.val?"#7ec8e3":"#a0b8d0"}}>{opt.label}</div><div style={{fontSize:10,color:"#4a6a8a",marginTop:2}}>{opt.sub}</div>
-            </button>
-          ))}
+
+        <div className="bg-[#0a1520] border border-[#1a3050] rounded-xl p-4 mb-4">
+          <div className="text-[10px] text-[#4a8a8a] tracking-widest uppercase font-mono mb-3">Tax Withholding Rates (%)</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label style={labelStyle}>Fed Tax</label><input type="number" step="0.1" value={form.fedTaxRate} onChange={e=>f("fedTaxRate",e.target.value)} style={inputStyle}/></div>
+            <div><label style={labelStyle}>State Tax</label><input type="number" step="0.1" value={form.stateTaxRate} onChange={e=>f("stateTaxRate",e.target.value)} style={inputStyle}/></div>
+            <div><label style={labelStyle}>County Tax</label><input type="number" step="0.1" value={form.countyTaxRate} onChange={e=>f("countyTaxRate",e.target.value)} style={inputStyle}/></div>
+            <div><label style={labelStyle}>FICA</label><input type="number" step="0.1" value={form.ficaTaxRate} onChange={e=>f("ficaTaxRate",e.target.value)} style={inputStyle}/></div>
+          </div>
         </div>
-        <Field label={form.authMethod==="face"?"Backup PIN (required)":"PIN Code"} error={errors.pin}><input type="password" maxLength={4} placeholder="4 digit PIN" value={form.pin} onChange={e=>f("pin",e.target.value.replace(/\D/,"").slice(0,4))} style={{...inputStyle,fontSize:18,letterSpacing:"0.3em",border:"1px solid " + (errors.pin?"#ef476f":"#1e2a38")}}/></Field>
-        <div style={{display:"flex",gap:10,marginTop:4}}>
-          <button onClick={onClose} style={{flex:1,padding:"12px",background:"none",border:"1px solid #2a3a4a",color:"#6b7a8d",borderRadius:8,cursor:"pointer",fontFamily:"'Bitter',serif",fontSize:13}}>Cancel</button>
-          <button onClick={submit} style={{flex:2,padding:"12px",background:"#7ec8e3",border:"none",color:"#0d1117",borderRadius:8,cursor:"pointer",fontFamily:"'Bitter',serif",fontSize:13,fontWeight:700}}>{saveLabel||"Save"}</button>
+
+        <div className="mb-4">
+          <label style={labelStyle}>Clock-In Auth Method</label>
+          <div className="flex gap-2">
+            <button onClick={()=>f("authMethod","pin")} className={`flex-1 py-2 rounded-lg text-[12px] font-bold ${form.authMethod==="pin" ? "bg-[#1e2a38] text-[#7ec8e3]" : "bg-[#131b27] text-[#4a6a8a]"}`}>PIN</button>
+            <button onClick={()=>f("authMethod","face")} className={`flex-1 py-2 rounded-lg text-[12px] font-bold ${form.authMethod==="face" ? "bg-[#1e2a38] text-[#7ec8e3]" : "bg-[#131b27] text-[#4a6a8a]"}`}>Face ID</button>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <label style={labelStyle}>4-Digit PIN</label>
+          <input type="password" maxLength={4} value={form.pin} onChange={e=>f("pin",e.target.value.replace(/\D/,"").slice(0,4))} style={inputStyle} className={`text-center tracking-[0.5em] text-[18px] ${errors.pin ? "border-[#ef476f]" : ""}`} />
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 border border-[#2a4060] text-[#7ec8e3] rounded-lg text-[13px] font-bold">Cancel</button>
+          <button onClick={submit} className="flex-[2] py-3 bg-[#06d6a0] text-[#0d1117] rounded-lg text-[13px] font-bold">{saveLabel}</button>
         </div>
       </div>
     </div>
