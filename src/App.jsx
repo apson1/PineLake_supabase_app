@@ -4,7 +4,6 @@ import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveS
 import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
 import * as XLSX from "xlsx"
 
-// --- UTILS ---
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() - d.getDay())
@@ -48,14 +47,12 @@ export default function PineLakeApp() {
   const [schedules, setSchedules] = useState({})
   const [clockedIn, setClockedIn] = useState({})
   const [allLogs, setAllLogs] = useState([])
-  const [clockLog, setClockLog] = useState([])
   const [screen, setScreen] = useState("kiosk")
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
   const [managerSession, setMgrSession] = useState(null)
   
-  // 5-Tab Dashboard State
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
   
@@ -66,7 +63,6 @@ export default function PineLakeApp() {
 
   const activeWeekKey = getSundayKey(targetDate)
 
-  // Clock Ticker
   useEffect(() => {
     const iv = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(iv)
@@ -102,7 +98,6 @@ export default function PineLakeApp() {
           }
         })
         setClockedIn(cState)
-        setClockLog(rLogs)
       }
 
       const { data: schedData } = await supabase.from("schedules").select("*")
@@ -133,8 +128,6 @@ export default function PineLakeApp() {
         else delete next[emp.id]
         return next
       })
-      const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
     }).subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [employees])
@@ -166,7 +159,6 @@ export default function PineLakeApp() {
         if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
         else weekdayMs += duration
       }
-      
       const weekdayH = weekdayMs / 3600000, weekendH = weekendMs / 3600000
       const regH = Math.min(weekdayH, 40), otH = Math.max(0, weekdayH - 40) + weekendH
       const gross = (regH * emp.baseRate) + (otH * emp.baseRate * 1.5) + ((regH + otH) * (emp.bonusRate || 0))
@@ -174,7 +166,6 @@ export default function PineLakeApp() {
       const fed = gross * (emp.fedTaxRate / 100), state = gross * (emp.stateTaxRate / 100)
       const county = gross * (emp.countyTaxRate / 100), fica = gross * (emp.ficaTaxRate / 100)
       const totalEmpTaxes = fed + state + county + fica
-
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
 
       summary[emp.id] = {
@@ -196,9 +187,7 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       csv += `"${e?.name || r.employee_id}",${r.week_start_date},${r.total_hours},${r.pay_rate_at_time},${r.gross_pay},${r.fed_tax},${r.state_tax},${r.county_tax},${r.fica_tax},${r.employer_tax},${r.total_cost},${r.net_pay}\n`
     })
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a"); link.href = url; link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`; link.click()
+    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`; link.click()
   }
 
   async function handleExportXLSX() {
@@ -208,8 +197,7 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       return { Employee: e?.name || r.employee_id, Date: r.week_start_date, Hours: r.total_hours, Rate: r.pay_rate_at_time, Gross: r.gross_pay, Fed: r.fed_tax, State: r.state_tax, County: r.county_tax, FICA: r.fica_tax, "Er Tax": r.employer_tax, "Total Cost": r.total_cost, Net: r.net_pay }
     })
-    const ws = XLSX.utils.json_to_sheet(sheet)
-    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(sheet), wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Payroll")
     XLSX.writeFile(wb, `Payroll_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
@@ -255,7 +243,6 @@ export default function PineLakeApp() {
 
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
 
-  // --- KIOSK HOME SCREEN ---
   if(screen === "kiosk") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
       <div className="max-w-[700px] mx-auto pb-10 px-4 sm:px-6">
@@ -292,8 +279,8 @@ export default function PineLakeApp() {
                 </div>
                 <div className="flex flex-wrap justify-center sm:justify-end items-center gap-2">
                   {isO && <button onClick={()=>{setAuthEmp(emp);setPendingAction("IN");setScreen("emp-auth")}} className="bg-[#06d6a0] text-[#0d1117] text-[10px] font-bold py-2 px-5 rounded-lg">CLOCK IN</button>}
-                  {isB && <><div className="text-[#fca311] font-mono font-bold text-[13px] mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp);setPendingAction("BREAK_END");setScreen("emp-auth")}} className="bg-[#fca311] text-[#0d1117] py-2 px-4 rounded-lg text-[10px] font-bold uppercase">End Break</button></>}
-                  {isW && <><div className="text-[#06d6a0] font-mono font-bold text-[13px] mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp);setPendingAction("BREAK_START");setScreen("emp-auth")}} className="border border-[#1e2a38] text-[#e8e8e8] py-2 px-4 rounded-lg text-[10px] font-mono">BREAK</button><button onClick={()=>{setAuthEmp(emp);setPendingAction("OUT");setScreen("emp-auth")}} className="bg-[#ef476f] text-[#0d1117] py-2 px-4 rounded-lg text-[10px] font-bold uppercase">Clock Out</button></>}
+                  {isB && <><div className="text-[#fca311] font-mono font-bold text-[13px] mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp);setPendingAction("BREAK_END");setScreen("emp-auth")}} className="bg-[#fca311] text-[#0d1117] py-2 px-4 rounded-lg text-[10px] font-bold uppercase hover:opacity-90 transition-opacity">END BREAK</button></>}
+                  {isW && <><div className="text-[#06d6a0] font-mono font-bold text-[13px] mr-2">{fmtElapsed(elapsed)}</div><button onClick={()=>{setAuthEmp(emp);setPendingAction("BREAK_START");setScreen("emp-auth")}} className="bg-[#1e2a38] hover:bg-[#2a4060] text-[#e8f4f8] py-2 px-4 rounded-lg text-[10px] font-bold uppercase transition-colors">START BREAK</button><button onClick={()=>{setAuthEmp(emp);setPendingAction("OUT");setScreen("emp-auth")}} className="bg-[#ef476f] text-[#0d1117] py-2 px-4 rounded-lg text-[10px] font-bold uppercase hover:opacity-90 transition-opacity">CLOCK OUT</button></>}
                 </div>
               </div>
             )
@@ -374,7 +361,6 @@ export default function PineLakeApp() {
     </div>
   )
 
-  // --- MANAGER DASHBOARD (5-TAB SYSTEM) ---
   if(screen === "manager-dashboard") {
     const totalFacility = employees.reduce((a, e) => {
       const s = timesheets[e.id] || { gross: 0, employerTax: 0, totalCost: 0, hours: 0 }
@@ -386,7 +372,6 @@ export default function PineLakeApp() {
         {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
         {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
         
-        {/* Header & Navigation */}
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
             <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">Manager Dashboard</h1></div>
@@ -402,7 +387,6 @@ export default function PineLakeApp() {
           </div>
         </div>
 
-        {/* 1. LIVE CLOCK */}
         {managerTab === "clock" && (
           <div className="flex flex-col gap-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -422,20 +406,9 @@ export default function PineLakeApp() {
                 )
               })}
             </div>
-            {clockLog.length > 0 && (
-              <div className="mt-2"><div className="text-[9px] text-[#3a4a5a] tracking-[0.15em] uppercase font-mono mb-2">Activity Log</div>
-                {clockLog.slice(0,6).map((l, i) => (
-                  <div key={i} className="flex justify-between items-center bg-[#0d1117] p-2 rounded-lg mb-1.5 font-mono text-[10px]">
-                    <div className="flex gap-3"><span className={l.action==="IN" ? "text-[#06d6a0] font-bold" : "text-[#ef476f] font-bold"}>{l.action}</span><span className="text-[#a0b8d0]">{l.emp}</span></div>
-                    <span className="text-[#4a6a8a]">{l.time}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
-        {/* 2. LABOR COST */}
         {managerTab === "labor" && (
           <div className="flex flex-col gap-6">
             <div>
@@ -482,7 +455,6 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {/* 3. SCHEDULER */}
         {managerTab === "schedule" && (
           <div className="flex flex-col gap-5">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
@@ -541,7 +513,6 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {/* 4. PAY CALC */}
         {managerTab === "payroll" && payEmp && (
           <div className="flex flex-col md:flex-row gap-5">
             <div className="w-full md:w-1/3 flex flex-col gap-2">
@@ -597,24 +568,16 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {/* 5. EMPLOYEES */}
         {managerTab === "employees" && (
           <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-center mb-2"><h2 className="text-[13px] font-bold text-[#e8f4f8]">Employee Roster</h2><button onClick={()=>setShowAddEmp(true)} className="bg-[#7ec8e3] text-[#0d1117] px-4 py-2 rounded-lg font-bold text-[11px]">+ Add Employee</button></div>
+            <div className="flex justify-between items-center mb-2"><h2 className="text-[14px] font-bold text-[#e8f4f8]">Staff Roster</h2><button onClick={()=>setShowAddEmp(true)} className="bg-[#7ec8e3] text-[#0d1117] px-4 py-2 rounded-lg font-bold text-[11px] hover:opacity-90">+ Add Employee</button></div>
             {employees.map(e => (
-              <div key={e.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: ROLE_COLORS[e.role]}}>{e.avatar}</div>
-                  <div><div className="text-[13px] font-bold flex items-center gap-2">{e.name} {clockedIn[e.id] && <span className="text-[9px] bg-[#0a2a1a] text-[#06d6a0] px-1.5 py-0.5 rounded font-mono">⏱ LIVE</span>}</div><div className="text-[10px] text-[#4a6a8a] mt-0.5">{e.role} • {e.authMethod==="face"?"👤 Face ID":"🔢 PIN"}</div></div>
+              <div key={e.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[13px]" style={{backgroundColor: ROLE_COLORS[e.role]}}>{e.avatar}</div>
+                  <div><div className="text-[14px] font-bold">{e.name}</div><div className="text-[11px] text-[#4a6a8a] font-mono mt-0.5">{e.role.toUpperCase()} • {fmtMoney(e.baseRate)}/hr</div></div>
                 </div>
-                <div className="flex items-center gap-3 bg-[#0a1520] border border-[#1a3050] rounded-lg p-2 w-full sm:w-auto">
-                  <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${e.baseRate.toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
-                  <div className="w-px h-5 bg-[#1a3050]"></div>
-                  <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(e.baseRate*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
-                  <div className="w-px h-5 bg-[#1a3050]"></div>
-                  <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{e.bonusRate>0?`$${e.bonusRate.toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
-                </div>
-                <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-full sm:w-8 h-8 rounded-lg flex items-center justify-center text-[14px] transition-colors hover:bg-[#2a4060]">✏</button>
+                <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors">✏</button>
               </div>
             ))}
           </div>
