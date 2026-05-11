@@ -54,6 +54,7 @@ export default function PineLakeApp() {
   
   const [managerSession, setMgrSession] = useState(null)
   const [mgrProfile, setMgrProfile] = useState(null) 
+  const [mgrLoginMode, setMgrLoginMode] = useState("select") // Controls the hybrid login screen
   
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
@@ -287,6 +288,7 @@ export default function PineLakeApp() {
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
   
   const kioskEmployees = employees.filter(e => !["Manager", "Site Manager", "Park Admin"].includes(e.role))
+  const managerEmployees = employees.filter(e => ["Manager", "Site Manager", "Park Admin"].includes(e.role))
 
   if(screen === "kiosk") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
@@ -302,7 +304,7 @@ export default function PineLakeApp() {
             <span className="text-[12px] font-bold text-[#e8f4f8]">Employee Portal</span>
             <span className="text-[9px] text-[#4a6a8a] mt-1">View schedules & pay</span>
           </button>
-          <button onClick={()=>setScreen("manager-login")} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#fca311] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
+          <button onClick={()=>{setMgrLoginMode("select"); setScreen("manager-login");}} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#fca311] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
             <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">🔐</span>
             <span className="text-[12px] font-bold text-[#e8f4f8]">Manager Access</span>
             <span className="text-[9px] text-[#4a6a8a] mt-1">System administration</span>
@@ -434,48 +436,88 @@ export default function PineLakeApp() {
     )
   }
 
-  if(screen === "manager-login") return (
-    <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault()
-          const email = e.target.email.value
-          const password = e.target.password.value
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-          if (error) return alert("Login failed: " + error.message)
-          
-          const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
-          
-          const validRoles = ["Site Manager", "Park Admin", "Manager"]
-          
-          if (empData && validRoles.includes(empData.role)) {
-            setMgrSession(data.session)
-            setMgrProfile(empData)
-            setScreen("manager-dashboard")
-          } else {
-            alert("Access Denied: You do not have management permissions.")
-            await supabase.auth.signOut()
-          }
-        }}
-        className="w-full max-w-[340px] bg-[#131b27] border border-[#1e2a38] p-6 rounded-2xl shadow-xl"
-      >
-        <div className="text-center mb-6">
-          <div className="text-[20px] font-bold text-[#e8f4f8]">Manager Access</div>
-          <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Secure Web Login</div>
+  // --- HYBRID MANAGER LOGIN SYSTEM ---
+  if(screen === "manager-login") {
+    if (mgrLoginMode === "select") {
+      return (
+        <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] flex flex-col items-center justify-center p-6">
+           <div className="w-full max-w-[360px]">
+              <div className="text-center mb-6">
+                <div className="text-[20px] font-bold text-[#e8f4f8]">Manager Access</div>
+                <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Select Profile to Unlock</div>
+              </div>
+              <div className="flex flex-col gap-3 mb-6">
+                {managerEmployees.map(emp => (
+                  <button key={emp.id} onClick={() => { setAuthEmp(emp); setMgrLoginMode("pin"); }} className="flex items-center gap-4 p-4 rounded-xl border border-[#1e2a38] bg-[#131b27] hover:border-[#7ec8e3] text-left w-full transition-all">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
+                    <div><div className="font-bold text-[15px] text-[#e8f4f8]">{emp.name}</div><div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div></div>
+                  </button>
+                ))}
+              </div>
+              <div className="border-t border-[#1e2a38] pt-6">
+                <button onClick={() => setMgrLoginMode("email")} className="w-full bg-[#1e2a38] text-[#e8f4f8] py-3 rounded-lg font-bold text-[12px] uppercase tracking-wide hover:bg-[#2a4060] transition-colors mb-3">Remote / Email Login</button>
+                <button onClick={() => setScreen("kiosk")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[12px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Cancel</button>
+              </div>
+           </div>
         </div>
-        <div className="mb-4">
-          <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Email Address</label>
-          <input name="email" type="email" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
+      )
+    }
+
+    if (mgrLoginMode === "pin" && authEmp) {
+      return (
+        <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
+          <div className="w-full max-w-[320px]">
+            <div className="text-center mb-6"><div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[20px] shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[20px] font-bold">{authEmp.name}</div></div>
+            <PinPad correctPin={authEmp.pin} label="MANAGER PIN" onSuccess={() => { setMgrProfile(authEmp); setScreen("manager-dashboard"); }} onCancel={() => setMgrLoginMode("select")} />
+          </div>
         </div>
-        <div className="mb-6">
-          <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Password</label>
-          <input name="password" type="password" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
+      )
+    }
+
+    if (mgrLoginMode === "email") {
+      return (
+        <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const email = e.target.email.value
+              const password = e.target.password.value
+              const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+              if (error) return alert("Login failed: " + error.message)
+              
+              const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
+              const validRoles = ["Site Manager", "Park Admin", "Manager"]
+              
+              if (empData && validRoles.includes(empData.role)) {
+                setMgrSession(data.session)
+                setMgrProfile(empData)
+                setScreen("manager-dashboard")
+              } else {
+                alert("Access Denied: You do not have management permissions.")
+                await supabase.auth.signOut()
+              }
+            }}
+            className="w-full max-w-[340px] bg-[#131b27] border border-[#1e2a38] p-6 rounded-2xl shadow-xl"
+          >
+            <div className="text-center mb-6">
+              <div className="text-[20px] font-bold text-[#e8f4f8]">Secure Web Login</div>
+              <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Email Authentication</div>
+            </div>
+            <div className="mb-4">
+              <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Email Address</label>
+              <input name="email" type="email" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
+            </div>
+            <div className="mb-6">
+              <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Password</label>
+              <input name="password" type="password" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
+            </div>
+            <button type="submit" className="w-full bg-[#7ec8e3] text-[#0d1117] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:opacity-90 transition-opacity mb-3">Sign In</button>
+            <button type="button" onClick={() => setMgrLoginMode("select")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Back to PIN Login</button>
+          </form>
         </div>
-        <button type="submit" className="w-full bg-[#7ec8e3] text-[#0d1117] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:opacity-90 transition-opacity mb-3">Sign In</button>
-        <button type="button" onClick={() => setScreen("kiosk")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Cancel</button>
-      </form>
-    </div>
-  )
+      )
+    }
+  }
 
   if(screen === "manager-dashboard") {
     const totalFacility = employees.reduce((a, e) => {
