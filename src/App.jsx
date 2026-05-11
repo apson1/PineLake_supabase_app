@@ -39,7 +39,7 @@ function formatShiftDisplay(shiftStr) {
 }
 
 function fmtMoney(n) { 
-  return "$" + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
+  return "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
 }
 
 export default function PineLakeApp() {
@@ -51,7 +51,6 @@ export default function PineLakeApp() {
   const [screen, setScreen] = useState("kiosk")
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
-  const [pendingAction, setPendingAction] = useState(null)
   
   const [managerSession, setMgrSession] = useState(null)
   const [mgrProfile, setMgrProfile] = useState(null) 
@@ -176,12 +175,16 @@ export default function PineLakeApp() {
       const weekendH = weekendMs / 3600000
       const regH = Math.min(weekdayH, 40)
       const otH = Math.max(0, weekdayH - 40) + weekendH
-      const gross = (regH * emp.baseRate) + (otH * emp.baseRate * 1.5) + ((regH + otH) * (emp.bonusRate || 0))
+      
+      const baseR = Number(emp.baseRate || 0)
+      const bonusR = Number(emp.bonusRate || 0)
+
+      const gross = (regH * baseR) + (otH * baseR * 1.5) + ((regH + otH) * bonusR)
       const employerTax = gross * 0.1095
-      const fed = gross * (emp.fedTaxRate / 100)
-      const state = gross * (emp.stateTaxRate / 100)
-      const county = gross * (emp.countyTaxRate / 100)
-      const fica = gross * (emp.ficaTaxRate / 100)
+      const fed = gross * (Number(emp.fedTaxRate || 0) / 100)
+      const state = gross * (Number(emp.stateTaxRate || 0) / 100)
+      const county = gross * (Number(emp.countyTaxRate || 0) / 100)
+      const fica = gross * (Number(emp.ficaTaxRate || 0) / 100)
       const totalEmpTaxes = fed + state + county + fica
 
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
@@ -243,7 +246,7 @@ export default function PineLakeApp() {
     const dbPayload = {
       name: empData.name,
       role: empData.role || empData.workRole, 
-      base_rate: parseFloat(empData.baseRate),
+      base_rate: parseFloat(empData.baseRate || 0),
       bonus_rate: parseFloat(empData.bonusRate || 0),
       pin: empData.pin,
       auth_method: empData.authMethod || 'pin',
@@ -495,7 +498,7 @@ export default function PineLakeApp() {
         
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
-            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">Manager Dashboard</h1></div>
+            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">{mgrProfile?.role || "Manager"} Dashboard</h1></div>
             <div className="flex items-center gap-4">
               <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#7ec8e3]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div></div>
               
@@ -525,33 +528,28 @@ export default function PineLakeApp() {
 
         {managerTab === "clock" && (
           <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center"><div className="text-[22px] font-bold font-mono text-[#06d6a0]">{activeCount}</div><div className="text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1.5">Clocked In</div></div>
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center"><div className="text-[22px] font-bold font-mono text-[#7ec8e3]">{employees.length}</div><div className="text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1.5">Total Staff</div></div>
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center"><div className="text-[22px] font-bold font-mono text-[#fca311]">{Object.keys(clockedIn).reduce((acc, id) => acc + getElapsed(parseInt(id))/3600, 0).toFixed(1)}h</div><div className="text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1.5">Hours On-Clock</div></div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
+              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-2 sm:p-4 text-center">
+                <div className="text-[16px] sm:text-[22px] font-bold font-mono text-[#06d6a0]">{activeCount}</div>
+                <div className="text-[8px] sm:text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1 sm:mt-1.5">Clocked In</div>
+              </div>
+              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-2 sm:p-4 text-center">
+                <div className="text-[16px] sm:text-[22px] font-bold font-mono text-[#7ec8e3]">{employees.length}</div>
+                <div className="text-[8px] sm:text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1 sm:mt-1.5">Total Staff</div>
+              </div>
+              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-2 sm:p-4 text-center">
+                <div className="text-[16px] sm:text-[22px] font-bold font-mono text-[#fca311]">{Object.keys(clockedIn).reduce((acc, id) => acc + getElapsed(parseInt(id))/3600, 0).toFixed(1)}h</div>
+                <div className="text-[8px] sm:text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1 sm:mt-1.5">Hours On-Clock</div>
+              </div>
             </div>
             <div className="flex flex-col gap-3">
               {employees.map(emp => {
                 const isIN = !!clockedIn[emp.id], elapsed = getElapsed(emp.id), col = ROLE_COLORS[emp.role]||"#7ec8e3"
                 return (
-                  <div key={emp.id} className={`flex items-center justify-between p-3 sm:p-4 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
-                      <div className="flex flex-col">
-                        <div className="font-bold text-[13px] sm:text-[14px] text-[#e8f4f8]">{emp.name}</div>
-                        <div className="text-[10px] sm:text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {isIN ? (
-                        <>
-                          <div className="font-mono text-[16px] sm:text-[18px] font-bold text-[#06d6a0] leading-none">{fmtElapsed(elapsed)}</div>
-                          <div className="text-[8px] sm:text-[9px] text-[#4a8a5a] font-mono mt-1 uppercase tracking-widest">Live Shift</div>
-                        </>
-                      ) : (
-                        <div className="text-[10px] text-[#3a4a5a] font-mono">— off clock</div>
-                      )}
-                    </div>
+                  <div key={emp.id} className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
+                    <div className="flex-1"><div className="font-bold text-[13px]">{emp.name}</div><div className="text-[10px] mt-1" style={{color: col}}>{emp.role}</div></div>
+                    {isIN ? <div className="text-right w-full sm:w-auto mt-2 sm:mt-0 border-t sm:border-0 border-[#1e2a38] pt-2 sm:pt-0"><div className="font-mono text-[18px] font-bold text-[#06d6a0]">{fmtElapsed(elapsed)}</div><div className="text-[9px] text-[#4a8a5a] font-mono mt-1">Live Shift</div></div> : <div className="text-[10px] text-[#3a4a5a] font-mono">— not clocked in</div>}
                   </div>
                 )
               })}
@@ -578,11 +576,11 @@ export default function PineLakeApp() {
             <div>
               <div className="flex justify-between items-center mb-4"><div className="text-[10px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono">Period To Date Summary</div>
               <div className="flex gap-2"><button onClick={handleExportCSV} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">CSV</button><button onClick={handleExportXLSX} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">EXCEL</button><button onClick={handleFinalizePayroll} className="bg-[#06d6a0] text-[#0d1117] px-4 py-1.5 rounded font-bold text-[10px] uppercase">Finalize</button></div></div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center"><div className="text-[18px] font-mono text-[#7ec8e3] font-bold">{totalFacility.hours.toFixed(1)}h</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Hours</div></div>
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center"><div className="text-[18px] font-mono text-[#06d6a0] font-bold">{fmtMoney(totalFacility.gross)}</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Gross Wages</div></div>
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 text-center"><div className="text-[18px] font-mono text-[#fca311] font-bold">{fmtMoney(totalFacility.taxes)}</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Employer Taxes</div></div>
-                <div className="bg-[#131b27] border border-[#ef476f] rounded-xl p-4 text-center"><div className="text-[18px] font-mono text-[#ef476f] font-bold">{fmtMoney(totalFacility.total)}</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Labor Cost</div></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#7ec8e3] font-bold">{totalFacility.hours.toFixed(1)}h</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Hours</div></div>
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#06d6a0] font-bold">{fmtMoney(totalFacility.gross)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Gross Wages</div></div>
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#fca311] font-bold">{fmtMoney(totalFacility.taxes)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Employer Taxes</div></div>
+                <div className="bg-[#131b27] border border-[#ef476f] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#ef476f] font-bold">{fmtMoney(totalFacility.total)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Labor Cost</div></div>
               </div>
             </div>
             <div>
@@ -598,7 +596,7 @@ export default function PineLakeApp() {
                       <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#111] text-[10px] shrink-0" style={{backgroundColor: col}}>{emp.avatar}</div>
-                          <div><div className="font-bold text-[12px] flex items-center gap-2">{emp.name} {isIN && <span className="bg-[#0a2a1a] text-[#06d6a0] text-[8px] px-1.5 py-0.5 rounded-full font-mono">⏱ LIVE</span>}</div><div className="text-[10px]" style={{color:col}}>{emp.role} • ${emp.baseRate}/hr</div></div>
+                          <div><div className="font-bold text-[12px] flex items-center gap-2">{emp.name} {isIN && <span className="bg-[#0a2a1a] text-[#06d6a0] text-[8px] px-1.5 py-0.5 rounded-full font-mono">⏱ LIVE</span>}</div><div className="text-[10px]" style={{color:col}}>{emp.role} • ${Number(emp.baseRate || 0).toFixed(2)}/hr</div></div>
                         </div>
                         <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#ef476f]">{fmtMoney(s.totalCost)}</div><div className="text-[9px] text-[#4a6a8a]">total cost</div></div>
                       </div>
@@ -684,7 +682,7 @@ export default function PineLakeApp() {
               {employees.map(emp => (
                 <button key={emp.id} onClick={()=>setPayEmp(emp)} className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${payEmp.id === emp.id ? "bg-[#0e2030] border-[#7ec8e3]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#2a4060]"}`}>
                   <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[#111] text-[9px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]}}>{emp.avatar}</div>
-                  <div className="flex-1"><div className={`text-[12px] font-bold ${payEmp.id===emp.id?"text-[#7ec8e3]":"text-[#a0b8d0]"}`}>{emp.name}</div><div className="text-[9px] text-[#4a6a8a]">${emp.baseRate}/hr</div></div>
+                  <div className="flex-1"><div className={`text-[12px] font-bold ${payEmp.id===emp.id?"text-[#7ec8e3]":"text-[#a0b8d0]"}`}>{emp.name}</div><div className="text-[9px] text-[#4a6a8a]">${Number(emp.baseRate || 0).toFixed(2)}/hr</div></div>
                   {clockedIn[emp.id] && <div className="text-[10px] text-[#06d6a0]">●</div>}
                 </button>
               ))}
@@ -692,9 +690,9 @@ export default function PineLakeApp() {
             <div className="w-full md:w-2/3 flex flex-col gap-4">
               <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
                 <div className="flex gap-5 flex-wrap">
-                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">Base</div><div className="text-[14px] font-bold font-mono text-[#7ec8e3] mt-1">${payEmp.baseRate.toFixed(2)}/hr</div></div>
-                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">OT (1.5x)</div><div className="text-[14px] font-bold font-mono text-[#fca311] mt-1">${(payEmp.baseRate*1.5).toFixed(2)}/hr</div></div>
-                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">Bonus</div><div className="text-[14px] font-bold font-mono text-[#06d6a0] mt-1">{payEmp.bonusRate>0?`$${payEmp.bonusRate.toFixed(2)}/hr`:"—"}</div></div>
+                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">Base</div><div className="text-[14px] font-bold font-mono text-[#7ec8e3] mt-1">${Number(payEmp.baseRate || 0).toFixed(2)}/hr</div></div>
+                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">OT (1.5x)</div><div className="text-[14px] font-bold font-mono text-[#fca311] mt-1">${(Number(payEmp.baseRate || 0)*1.5).toFixed(2)}/hr</div></div>
+                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">Bonus</div><div className="text-[14px] font-bold font-mono text-[#06d6a0] mt-1">{payEmp.bonusRate>0?`$${Number(payEmp.bonusRate).toFixed(2)}/hr`:"—"}</div></div>
                 </div>
                 {clockedIn[payEmp.id] && <div className="mt-3 bg-[#0a1a0a] border border-[#1a4a2a] rounded-lg p-2 font-mono text-[11px] text-[#06d6a0]">⏱ Live Shift Active: {fmtElapsed(getElapsed(payEmp.id))}</div>}
               </div>
@@ -710,15 +708,15 @@ export default function PineLakeApp() {
                         <div><div className="text-[18px] font-bold font-mono text-[#fca311] leading-none">{s.otH}</div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em] mt-1.5">Overtime</div></div>
                       </div>
                       
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Regular Pay</span><span className="text-[11px] font-mono text-[#4a6a8a]">{s.regH}h × ${payEmp.baseRate.toFixed(2)}</span><span className="text-[13px] font-mono font-bold text-[#e8f4f8]">${(s.regH*payEmp.baseRate).toFixed(2)}</span></div>
-                      {parseFloat(s.otH) > 0 && <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Overtime Pay</span><span className="text-[11px] font-mono text-[#4a6a8a]">{s.otH}h × ${(payEmp.baseRate*1.5).toFixed(2)}</span><span className="text-[13px] font-mono font-bold text-[#fca311]">${(s.otH*payEmp.baseRate*1.5).toFixed(2)}</span></div>}
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Regular Pay</span><span className="text-[11px] font-mono text-[#4a6a8a]">{s.regH}h × ${Number(payEmp.baseRate || 0).toFixed(2)}</span><span className="text-[13px] font-mono font-bold text-[#e8f4f8]">${(s.regH*Number(payEmp.baseRate || 0)).toFixed(2)}</span></div>
+                      {parseFloat(s.otH) > 0 && <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Overtime Pay</span><span className="text-[11px] font-mono text-[#4a6a8a]">{s.otH}h × ${(Number(payEmp.baseRate || 0)*1.5).toFixed(2)}</span><span className="text-[13px] font-mono font-bold text-[#fca311]">${(s.otH*Number(payEmp.baseRate || 0)*1.5).toFixed(2)}</span></div>}
                       <div className="flex justify-between items-center py-2.5 border-t border-[#2a3a4a] mt-1"><span className="text-[13px] font-bold text-[#e8f4f8]">Gross Pay</span><span className="text-[15px] font-mono font-bold text-[#7ec8e3]">{fmtMoney(s.gross)}</span></div>
                       
                       <div className="h-3"></div>
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Federal Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{payEmp.fedTaxRate}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.fed)}</span></div>
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">State Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{payEmp.stateTaxRate}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.state)}</span></div>
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">FICA</span><span className="text-[11px] font-mono text-[#4a6a8a]">{payEmp.ficaTaxRate}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.fica)}</span></div>
-                      {payEmp.countyTaxRate > 0 && <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">County Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{payEmp.countyTaxRate}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.county)}</span></div>}
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Federal Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.fedTaxRate || 0).toFixed(1)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.fed)}</span></div>
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">State Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.stateTaxRate || 0).toFixed(1)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.state)}</span></div>
+                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">FICA</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.ficaTaxRate || 0).toFixed(2)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.fica)}</span></div>
+                      {Number(payEmp.countyTaxRate) > 0 && <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">County Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.countyTaxRate || 0).toFixed(1)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.county)}</span></div>}
                       
                       <div className="mt-3 p-3 rounded-lg bg-gradient-to-br from-[#0a2a1a] to-[#0d2030] border border-[#1a4a2a] flex justify-between items-center">
                         <div className="text-[11px] text-[#4a6a8a] uppercase tracking-[0.15em] font-mono">Net Pay</div>
@@ -743,11 +741,11 @@ export default function PineLakeApp() {
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="hidden sm:flex items-center gap-3 bg-[#0a1520] border border-[#1a3050] rounded-lg p-2 mr-2">
-                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${e.baseRate.toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
+                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${Number(e.baseRate || 0).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
                     <div className="w-px h-5 bg-[#1a3050]"></div>
-                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(e.baseRate*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
+                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(Number(e.baseRate || 0)*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
                     <div className="w-px h-5 bg-[#1a3050]"></div>
-                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{e.bonusRate>0?`$${e.bonusRate.toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
+                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{Number(e.bonusRate)>0?`$${Number(e.bonusRate).toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
                   </div>
                   <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors shrink-0">✏</button>
                 </div>
