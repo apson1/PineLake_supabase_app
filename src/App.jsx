@@ -52,7 +52,10 @@ export default function PineLakeApp() {
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
+  
+  // New Admin/Manager State
   const [managerSession, setMgrSession] = useState(null)
+  const [mgrProfile, setMgrProfile] = useState(null) 
   
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
@@ -86,23 +89,16 @@ export default function PineLakeApp() {
       const { data: logs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
       if (logs) {
         setAllLogs(logs)
-        const cState = {}
-        const rLogs = []
-        const seen = new Set()
+        const cState = {}; const rLogs = []; const seen = new Set()
         logs.forEach(log => {
           if (!seen.has(log.employee_id)) {
             seen.add(log.employee_id)
-            if (log.action === "IN" || log.action === "BREAK_END") {
-              cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
-            } else if (log.action === "BREAK_START") {
-              cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
-            }
+            if (log.action === "IN" || log.action === "BREAK_END") cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
+            else if (log.action === "BREAK_START") cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
           }
           if (rLogs.length < 50) {
             const emp = empData?.find(e => e.id === log.employee_id)
-            if (emp) {
-              rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
-            }
+            if (emp) rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
           }
         })
         setClockedIn(cState)
@@ -153,15 +149,12 @@ export default function PineLakeApp() {
     const summary = {}
     employees.forEach(emp => {
       const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-      let weekdayMs = 0
-      let weekendMs = 0
-      let lastIn = null
+      let weekdayMs = 0, weekendMs = 0, lastIn = null
       
       empLogs.forEach(log => {
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) lastIn = new Date(log.created_at).getTime()
         else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
-          const shiftStart = new Date(lastIn)
-          const dayOfWeek = shiftStart.getDay()
+          const shiftStart = new Date(lastIn), dayOfWeek = shiftStart.getDay()
           const duration = new Date(log.created_at).getTime() - lastIn
           if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
           else weekdayMs += duration
@@ -169,22 +162,17 @@ export default function PineLakeApp() {
         }
       })
       if (lastIn) {
-        const dayOfWeek = new Date(lastIn).getDay()
-        const duration = Date.now() - lastIn
+        const dayOfWeek = new Date(lastIn).getDay(), duration = Date.now() - lastIn
         if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
         else weekdayMs += duration
       }
       
-      const weekdayH = weekdayMs / 3600000
-      const weekendH = weekendMs / 3600000
-      const regH = Math.min(weekdayH, 40)
-      const otH = Math.max(0, weekdayH - 40) + weekendH
+      const weekdayH = weekdayMs / 3600000, weekendH = weekendMs / 3600000
+      const regH = Math.min(weekdayH, 40), otH = Math.max(0, weekdayH - 40) + weekendH
       const gross = (regH * emp.baseRate) + (otH * emp.baseRate * 1.5) + ((regH + otH) * (emp.bonusRate || 0))
       const employerTax = gross * 0.1095
-      const fed = gross * (emp.fedTaxRate / 100)
-      const state = gross * (emp.stateTaxRate / 100)
-      const county = gross * (emp.countyTaxRate / 100)
-      const fica = gross * (emp.ficaTaxRate / 100)
+      const fed = gross * (emp.fedTaxRate / 100), state = gross * (emp.stateTaxRate / 100)
+      const county = gross * (emp.countyTaxRate / 100), fica = gross * (emp.ficaTaxRate / 100)
       const totalEmpTaxes = fed + state + county + fica
 
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
@@ -208,12 +196,7 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       csv += `"${e?.name || r.employee_id}",${r.week_start_date},${r.total_hours},${r.pay_rate_at_time},${r.gross_pay},${r.fed_tax},${r.state_tax},${r.county_tax},${r.fica_tax},${r.employer_tax},${r.total_cost},${r.net_pay}\n`
     })
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`
-    link.click()
+    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`; link.click()
   }
 
   async function handleExportXLSX() {
@@ -223,8 +206,7 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       return { Employee: e?.name || r.employee_id, Date: r.week_start_date, Hours: r.total_hours, Rate: r.pay_rate_at_time, Gross: r.gross_pay, Fed: r.fed_tax, State: r.state_tax, County: r.county_tax, FICA: r.fica_tax, "Er Tax": r.employer_tax, "Total Cost": r.total_cost, Net: r.net_pay }
     })
-    const ws = XLSX.utils.json_to_sheet(sheet)
-    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(sheet), wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Payroll")
     XLSX.writeFile(wb, `Payroll_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
@@ -264,14 +246,10 @@ export default function PineLakeApp() {
         const { error } = await supabase.from("employees").update(dbPayload).eq("id", empData.id)
         if (error) throw error
         setEmployees(prev => prev.map(e => e.id === empData.id ? { ...empData, ...dbPayload } : e))
-        alert("Employee updated successfully")
       } else {
         const { data, error } = await supabase.from("employees").insert([dbPayload]).select()
         if (error) throw error
-        if (data) {
-          setEmployees(prev => [...prev, { ...dbPayload, id: data[0].id }])
-          alert("New employee/manager created!")
-        }
+        if (data) setEmployees(prev => [...prev, { ...dbPayload, id: data[0].id }])
       }
       setShowAddEmp(false)
       setEditEmp(null)
@@ -317,9 +295,7 @@ export default function PineLakeApp() {
         </div>
         <div className="flex flex-col gap-3">
           {employees.map(emp => {
-            const s = clockedIn[emp.id]
-            const isW = s?.status === "IN"
-            const isB = s?.status === "BREAK"
+            const s = clockedIn[emp.id], isW = s?.status === "IN", isB = s?.status === "BREAK"
             const elapsed = getElapsed(emp.id)
             return (
               <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
@@ -354,10 +330,7 @@ export default function PineLakeApp() {
   )
 
   if(screen === "kiosk-action-hub" && authEmp) {
-    const s = clockedIn[authEmp.id]
-    const isW = s?.status === "IN"
-    const isB = s?.status === "BREAK"
-    const isO = !s
+    const s = clockedIn[authEmp.id], isW = s?.status === "IN", isB = s?.status === "BREAK", isO = !s
     const elapsed = getElapsed(authEmp.id)
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
@@ -365,10 +338,8 @@ export default function PineLakeApp() {
            <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-xl" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div>
            <h2 className="text-2xl font-bold mb-1">Hello, {authEmp.name.split(" ")[0]}</h2>
            <div className="text-[#4a6a8a] text-[11px] mb-6 uppercase tracking-widest font-mono">Select an Action</div>
-
            {isW && <div className="text-[36px] font-mono font-bold text-[#06d6a0] mb-6">{fmtElapsed(elapsed)}</div>}
            {isB && <div className="text-[36px] font-mono font-bold text-[#fca311] mb-6">{fmtElapsed(elapsed)}</div>}
-
            <div className="flex flex-col gap-4">
               {isO && <button onClick={()=>doClockAction(authEmp, "IN")} className="bg-[#06d6a0] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">Clock In</button>}
               {isW && (
@@ -379,7 +350,6 @@ export default function PineLakeApp() {
               )}
               {isB && <button onClick={()=>doClockAction(authEmp, "BREAK_END")} className="bg-[#fca311] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">End Break</button>}
            </div>
-
            <button onClick={()=>setScreen("kiosk")} className="mt-8 text-[#4a6a8a] text-[12px] font-bold uppercase tracking-widest hover:text-[#e8f4f8] transition-colors">Cancel</button>
         </div>
       </div>
@@ -410,8 +380,7 @@ export default function PineLakeApp() {
   )
 
   if(screen === "portal-dashboard" && portalEmp) {
-    const s = timesheets[portalEmp.id] || { hours: "0.00", gross: 0, netPay: 0 }
-    const wk = schedules[activeWeekKey] || {}
+    const s = timesheets[portalEmp.id] || { hours: "0.00", gross: 0, netPay: 0 }, wk = schedules[activeWeekKey] || {}
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
         <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center">
@@ -441,7 +410,7 @@ export default function PineLakeApp() {
     )
   }
 
-  // --- NEW MANAGER LOGIN FORM ---
+  // --- NEW LOGIN & ROLE CHECK ---
   if(screen === "manager-login") return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
       <form
@@ -453,11 +422,16 @@ export default function PineLakeApp() {
           if (error) return alert("Login failed: " + error.message)
           
           const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
-          if (empData && empData.role === "Manager") {
+          
+          // Allow access if they are any kind of manager or admin
+          const validRoles = ["Manager", "Site Manager", "Park Admin", "Admin"];
+          
+          if (empData && validRoles.includes(empData.role)) {
             setMgrSession(data.session)
+            setMgrProfile(empData)
             setScreen("manager-dashboard")
           } else {
-            alert("Access Denied: You do not have Manager permissions.")
+            alert("Access Denied: You do not have management permissions.")
             await supabase.auth.signOut()
           }
         }}
@@ -467,17 +441,14 @@ export default function PineLakeApp() {
           <div className="text-[20px] font-bold text-[#e8f4f8]">Manager Access</div>
           <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Secure Web Login</div>
         </div>
-        
         <div className="mb-4">
           <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Email Address</label>
           <input name="email" type="email" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
         </div>
-        
         <div className="mb-6">
           <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Password</label>
           <input name="password" type="password" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
         </div>
-        
         <button type="submit" className="w-full bg-[#7ec8e3] text-[#0d1117] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:opacity-90 transition-opacity mb-3">Sign In</button>
         <button type="button" onClick={() => setScreen("kiosk")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Cancel</button>
       </form>
@@ -490,22 +461,34 @@ export default function PineLakeApp() {
       return { gross: a.gross + s.gross, taxes: a.taxes + s.employerTax, total: a.total + s.totalCost, hours: a.hours + parseFloat(s.hours) }
     }, { gross: 0, taxes: 0, total: 0, hours: 0 })
 
+    // THE MASTER KEY RULE
+    const isAdmin = mgrProfile?.role === "Park Admin";
+
+    // Dynamic Tabs based on Role
+    const availableTabs = [
+      { id: "clock", label: "LIVE CLOCK" },
+      ...(isAdmin ? [{ id: "labor", label: "LABOR COST" }] : []),
+      { id: "schedule", label: "SCHEDULER" },
+      ...(isAdmin ? [{ id: "payroll", label: "PAY CALC" }] : []),
+      { id: "employees", label: "EMPLOYEES" }
+    ];
+
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[1000px] mx-auto pb-20 px-4 sm:px-6">
-        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
-        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
+        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)} isAdmin={isAdmin}/>}
+        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)} isAdmin={isAdmin}/>}
         
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
-            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">Manager Dashboard</h1></div>
+            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">{isAdmin ? "Admin Dashboard" : "Manager Dashboard"}</h1></div>
             <div className="flex items-center gap-4">
               <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#7ec8e3]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div></div>
-              <button onClick={()=>setScreen("kiosk")} className="bg-[#1e2a38] text-[10px] px-3 py-1.5 rounded border border-[#2a4060] hover:bg-[#2a4060] transition-colors w-fit">Kiosk</button>
+              <button onClick={()=>{setMgrProfile(null); setScreen("kiosk")}} className="bg-[#1e2a38] text-[10px] px-3 py-1.5 rounded border border-[#2a4060] hover:bg-[#2a4060] transition-colors w-fit">Logout</button>
             </div>
           </div>
           <div className="flex overflow-x-auto gap-1 sm:gap-4 pb-1">
-            {[["clock","LIVE CLOCK"],["labor","LABOR COST"],["schedule","SCHEDULER"],["payroll","PAY CALC"],["employees","EMPLOYEES"]].map(([id, label]) => (
-              <button key={id} style={managerTab === id ? tabBtnActiveStyle : tabBtnStyle} onClick={()=>setMgrTab(id)}>{label}</button>
+            {availableTabs.map((tab) => (
+              <button key={tab.id} style={managerTab === tab.id ? tabBtnActiveStyle : tabBtnStyle} onClick={()=>setMgrTab(tab.id)}>{tab.label}</button>
             ))}
           </div>
         </div>
@@ -546,7 +529,7 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {managerTab === "labor" && (
+        {isAdmin && managerTab === "labor" && (
           <div className="flex flex-col gap-6">
             <div>
               <div className="flex justify-between items-center mb-4"><div className="text-[10px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono">Period To Date Summary</div>
@@ -650,7 +633,7 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {managerTab === "payroll" && payEmp && (
+        {isAdmin && managerTab === "payroll" && payEmp && (
           <div className="flex flex-col md:flex-row gap-5">
             <div className="w-full md:w-1/3 flex flex-col gap-2">
               <div className="text-[9px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-1.5">Employee</div>
@@ -712,9 +695,22 @@ export default function PineLakeApp() {
               <div key={e.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex justify-between items-center">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[13px]" style={{backgroundColor: ROLE_COLORS[e.role]}}>{e.avatar}</div>
-                  <div><div className="text-[14px] font-bold">{e.name}</div><div className="text-[11px] text-[#4a6a8a] font-mono mt-0.5">{e.role.toUpperCase()} • {fmtMoney(e.baseRate)}/hr</div></div>
+                  <div><div className="text-[14px] font-bold">{e.name}</div><div className="text-[11px] text-[#4a6a8a] font-mono mt-0.5">{e.role.toUpperCase()}</div></div>
                 </div>
-                <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors">✏</button>
+                <div className="flex items-center gap-4">
+                  {isAdmin ? (
+                    <div className="hidden sm:flex items-center gap-3 bg-[#0a1520] border border-[#1a3050] rounded-lg p-2 mr-2">
+                      <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${e.baseRate.toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
+                      <div className="w-px h-5 bg-[#1a3050]"></div>
+                      <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(e.baseRate*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
+                      <div className="w-px h-5 bg-[#1a3050]"></div>
+                      <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{e.bonusRate>0?`$${e.bonusRate.toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
+                    </div>
+                  ) : (
+                    <div className="text-[9px] text-[#4a6a8a] uppercase font-mono tracking-widest px-3 hidden sm:block">Financials Hidden</div>
+                  )}
+                  <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors">✏</button>
+                </div>
               </div>
             ))}
           </div>
