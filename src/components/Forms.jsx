@@ -107,8 +107,7 @@ export function PinPad({ onSuccess, onCancel, correctPin, label }) {
   )
 }
 
-// Added isAdmin prop to determine if financial fields should show
-export function EmployeeForm({ initial, onSave, onClose, title, saveLabel, isAdmin = true }) {
+export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
   const [form, setForm] = useState(initial ? {
     name: initial.name, workRole: initial.role, baseRate: String(initial.baseRate),
     bonusRate: String(initial.bonusRate || ""), pin: initial.pin, authMethod: initial.authMethod,
@@ -125,8 +124,7 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel, isAdm
   function validate() {
     const e = {}
     if (!form.name.trim()) e.name = "Required"
-    // Only validate baseRate if they are an admin capable of seeing it
-    if (isAdmin && (!form.baseRate || isNaN(form.baseRate) || +form.baseRate <= 0)) e.baseRate = "Valid rate required"
+    if (!form.baseRate || isNaN(form.baseRate) || +form.baseRate <= 0) e.baseRate = "Valid rate required"
     if (form.pin.length !== 4 || isNaN(form.pin)) e.pin = "4-digit PIN required"
     setErrors(e)
     return !Object.keys(e).length
@@ -137,14 +135,13 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel, isAdm
     const av = form.name.trim().split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
     onSave({
       ...(initial || {}), id: initial?.id || Date.now(), name: form.name.trim(), role: form.workRole,
-      // If not an admin, we just pass back the original rates so they aren't lost
-      baseRate: isAdmin ? parseFloat(form.baseRate) : parseFloat(initial?.baseRate || 0), 
-      bonusRate: isAdmin ? parseFloat(form.bonusRate || 0) : parseFloat(initial?.bonusRate || 0),
+      baseRate: parseFloat(form.baseRate), 
+      bonusRate: parseFloat(form.bonusRate || 0),
       pin: form.pin, authMethod: form.authMethod, avatar: av,
-      fedTaxRate: isAdmin ? parseFloat(form.fedTaxRate || 0) : parseFloat(initial?.fedTaxRate || 12), 
-      stateTaxRate: isAdmin ? parseFloat(form.stateTaxRate || 0) : parseFloat(initial?.stateTaxRate || 5.5),
-      countyTaxRate: isAdmin ? parseFloat(form.countyTaxRate || 0) : parseFloat(initial?.countyTaxRate || 0), 
-      ficaTaxRate: isAdmin ? parseFloat(form.ficaTaxRate || 0) : parseFloat(initial?.ficaTaxRate || 7.65)
+      fedTaxRate: parseFloat(form.fedTaxRate || 0), 
+      stateTaxRate: parseFloat(form.stateTaxRate || 0),
+      countyTaxRate: parseFloat(form.countyTaxRate || 0), 
+      ficaTaxRate: parseFloat(form.ficaTaxRate || 0)
     })
   }
 
@@ -167,39 +164,33 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel, isAdm
         <div className="mb-4">
           <label style={labelStyle}>Shift Role</label>
           <select value={form.workRole} onChange={e=>f("workRole",e.target.value)} style={inputStyle}>
-            {/* Split out Park Admin and Site Manager */}
-            {["Park Admin", "Site Manager", "Manager", "Waterfront","Concessions","Activities","Lifeguard","Gate","Maintenance","Events"].map(r=><option key={r}>{r}</option>)}
+            {["Park Admin", "Site Manager", "Waterfront", "Concessions", "Activities", "Lifeguard", "Gate", "Maintenance", "Events"].map(r=><option key={r}>{r}</option>)}
           </select>
         </div>
 
-        {/* FINANCIALS - ONLY VISIBLE TO PARK ADMIN */}
-        {isAdmin && (
-          <>
-            <div className="bg-[#0a1520] border border-[#1a3050] rounded-xl p-4 mb-4">
-              <div className="text-[10px] text-[#4a8a8a] tracking-widest uppercase font-mono mb-3">Compensation</div>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label style={labelStyle}>Base Rate /hr</label>
-                  <input type="number" step="0.25" value={form.baseRate} onChange={e=>f("baseRate",e.target.value)} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Bonus /hr</label>
-                  <input type="number" step="0.25" value={form.bonusRate} onChange={e=>f("bonusRate",e.target.value)} style={inputStyle} />
-                </div>
-              </div>
+        <div className="bg-[#0a1520] border border-[#1a3050] rounded-xl p-4 mb-4">
+          <div className="text-[10px] text-[#4a8a8a] tracking-widest uppercase font-mono mb-3">Compensation</div>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label style={labelStyle}>Base Rate /hr</label>
+              <input type="number" step="0.25" value={form.baseRate} onChange={e=>f("baseRate",e.target.value)} style={inputStyle} />
             </div>
+            <div>
+              <label style={labelStyle}>Bonus /hr</label>
+              <input type="number" step="0.25" value={form.bonusRate} onChange={e=>f("bonusRate",e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+        </div>
 
-            <div className="bg-[#0a1520] border border-[#1a3050] rounded-xl p-4 mb-4">
-              <div className="text-[10px] text-[#4a8a8a] tracking-widest uppercase font-mono mb-3">Tax Withholding Rates (%)</div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label style={labelStyle}>Fed Tax</label><input type="number" step="0.1" value={form.fedTaxRate} onChange={e=>f("fedTaxRate",e.target.value)} style={inputStyle}/></div>
-                <div><label style={labelStyle}>State Tax</label><input type="number" step="0.1" value={form.stateTaxRate} onChange={e=>f("stateTaxRate",e.target.value)} style={inputStyle}/></div>
-                <div><label style={labelStyle}>County Tax</label><input type="number" step="0.1" value={form.countyTaxRate} onChange={e=>f("countyTaxRate",e.target.value)} style={inputStyle}/></div>
-                <div><label style={labelStyle}>FICA</label><input type="number" step="0.1" value={form.ficaTaxRate} onChange={e=>f("ficaTaxRate",e.target.value)} style={inputStyle}/></div>
-              </div>
-            </div>
-          </>
-        )}
+        <div className="bg-[#0a1520] border border-[#1a3050] rounded-xl p-4 mb-4">
+          <div className="text-[10px] text-[#4a8a8a] tracking-widest uppercase font-mono mb-3">Tax Withholding Rates (%)</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label style={labelStyle}>Fed Tax</label><input type="number" step="0.1" value={form.fedTaxRate} onChange={e=>f("fedTaxRate",e.target.value)} style={inputStyle}/></div>
+            <div><label style={labelStyle}>State Tax</label><input type="number" step="0.1" value={form.stateTaxRate} onChange={e=>f("stateTaxRate",e.target.value)} style={inputStyle}/></div>
+            <div><label style={labelStyle}>County Tax</label><input type="number" step="0.1" value={form.countyTaxRate} onChange={e=>f("countyTaxRate",e.target.value)} style={inputStyle}/></div>
+            <div><label style={labelStyle}>FICA</label><input type="number" step="0.1" value={form.ficaTaxRate} onChange={e=>f("ficaTaxRate",e.target.value)} style={inputStyle}/></div>
+          </div>
+        </div>
 
         <div className="mb-4">
           <label style={labelStyle}>Clock-In Auth Method</label>

@@ -282,6 +282,9 @@ export default function PineLakeApp() {
   }
 
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
+  
+  // Hide managers from Kiosk roster
+  const kioskEmployees = employees.filter(e => !["Manager", "Site Manager", "Park Admin"].includes(e.role))
 
   if(screen === "kiosk") return (
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
@@ -307,7 +310,7 @@ export default function PineLakeApp() {
           Staff Roster <span className="text-[#06d6a0] ml-1">({activeCount} on clock)</span>
         </div>
         <div className="flex flex-col gap-3">
-          {employees.filter(e => e.role !== "Park Admin").map(emp => {
+          {kioskEmployees.map(emp => {
             const s = clockedIn[emp.id]
             const isW = s?.status === "IN"
             const isB = s?.status === "BREAK"
@@ -378,7 +381,7 @@ export default function PineLakeApp() {
     <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
       <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center"><h1 className="text-[18px] font-bold">Select Profile</h1><button onClick={()=>setScreen("kiosk")} className="text-[10px] text-[#4a6a8a] font-mono uppercase tracking-widest hover:text-[#e8e8e8] transition-colors">Back</button></div>
       <div className="flex flex-col gap-3">
-        {employees.filter(e => e.role !== "Park Admin").map(emp=>(
+        {kioskEmployees.map(emp=>(
           <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("portal-auth")}} className="flex items-center gap-4 p-3.5 rounded-xl border border-[#1e2a38] bg-[#131b27] hover:border-[#2a4060] text-left w-full transition-all">
             <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
             <div><div className="font-bold text-[13px] text-[#e8f4f8]">{emp.name}</div><div className="text-[10px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div></div>
@@ -441,7 +444,7 @@ export default function PineLakeApp() {
           
           const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
           
-          const validRoles = ["Manager", "Site Manager", "Park Admin", "Admin"]
+          const validRoles = ["Manager", "Site Manager", "Park Admin"]
           
           if (empData && validRoles.includes(empData.role)) {
             setMgrSession(data.session)
@@ -478,24 +481,22 @@ export default function PineLakeApp() {
       return { gross: a.gross + s.gross, taxes: a.taxes + s.employerTax, total: a.total + s.totalCost, hours: a.hours + parseFloat(s.hours) }
     }, { gross: 0, taxes: 0, total: 0, hours: 0 })
 
-    const isAdmin = mgrProfile?.role === "Park Admin"
-
     const availableTabs = [
       { id: "clock", label: "LIVE CLOCK" },
-      ...(isAdmin ? [{ id: "labor", label: "LABOR COST" }] : []),
+      { id: "labor", label: "LABOR COST" },
       { id: "schedule", label: "SCHEDULER" },
-      ...(isAdmin ? [{ id: "payroll", label: "PAY CALC" }] : []),
+      { id: "payroll", label: "PAY CALC" },
       { id: "employees", label: "EMPLOYEES" }
     ]
 
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[1000px] mx-auto pb-20 px-4 sm:px-6">
-        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)} isAdmin={isAdmin}/>}
-        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)} isAdmin={isAdmin}/>}
+        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
+        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
         
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
-            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">{isAdmin ? "Admin Dashboard" : "Manager Dashboard"}</h1></div>
+            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">Manager Dashboard</h1></div>
             <div className="flex items-center gap-4">
               <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#7ec8e3]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div></div>
               
@@ -559,7 +560,7 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {isAdmin && managerTab === "labor" && (
+        {managerTab === "labor" && (
           <div className="flex flex-col gap-6">
             <div>
               <div className="flex justify-between items-center mb-4"><div className="text-[10px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono">Period To Date Summary</div>
@@ -663,7 +664,7 @@ export default function PineLakeApp() {
           </div>
         )}
 
-        {isAdmin && managerTab === "payroll" && payEmp && (
+        {managerTab === "payroll" && payEmp && (
           <div className="flex flex-col md:flex-row gap-5">
             <div className="w-full md:w-1/3 flex flex-col gap-2">
               <div className="text-[9px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-1.5">Employee</div>
@@ -728,17 +729,13 @@ export default function PineLakeApp() {
                   <div><div className="text-[14px] font-bold">{e.name}</div><div className="text-[11px] text-[#4a6a8a] font-mono mt-0.5">{e.role.toUpperCase()}</div></div>
                 </div>
                 <div className="flex items-center gap-4">
-                  {isAdmin ? (
-                    <div className="hidden sm:flex items-center gap-3 bg-[#0a1520] border border-[#1a3050] rounded-lg p-2 mr-2">
-                      <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${e.baseRate.toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
-                      <div className="w-px h-5 bg-[#1a3050]"></div>
-                      <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(e.baseRate*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
-                      <div className="w-px h-5 bg-[#1a3050]"></div>
-                      <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{e.bonusRate>0?`$${e.bonusRate.toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
-                    </div>
-                  ) : (
-                    <div className="text-[9px] text-[#4a6a8a] uppercase font-mono tracking-widest px-3 hidden sm:block">Financials Hidden</div>
-                  )}
+                  <div className="hidden sm:flex items-center gap-3 bg-[#0a1520] border border-[#1a3050] rounded-lg p-2 mr-2">
+                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${e.baseRate.toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
+                    <div className="w-px h-5 bg-[#1a3050]"></div>
+                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(e.baseRate*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
+                    <div className="w-px h-5 bg-[#1a3050]"></div>
+                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{e.bonusRate>0?`$${e.bonusRate.toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
+                  </div>
                   <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors">✏</button>
                 </div>
               </div>
