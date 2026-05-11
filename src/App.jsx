@@ -243,7 +243,7 @@ export default function PineLakeApp() {
     alert("Payroll finalized.")
   }
 
-  async function handleSaveEmployee(empData) {
+async function handleSaveEmployee(empData) {
     const dbPayload = {
       name: empData.name,
       role: empData.role || empData.workRole, 
@@ -259,7 +259,7 @@ export default function PineLakeApp() {
     }
 
     try {
-      if (empData.id && String(empData.id).length < 10) {
+      if (empData.id) {
         const { error } = await supabase.from("employees").update(dbPayload).eq("id", empData.id)
         if (error) throw error
         setEmployees(prev => prev.map(e => e.id === empData.id ? { ...empData, ...dbPayload } : e))
@@ -275,7 +275,6 @@ export default function PineLakeApp() {
       alert("Save failed: " + err.message)
     }
   }
-
   async function doClockAction(emp, type) {
     const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
     if (authError) return alert("Security Error: Identity could not be verified.")
