@@ -140,7 +140,7 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
       fedTaxRate: parseFloat(form.fedTaxRate || 0), stateTaxRate: parseFloat(form.stateTaxRate || 0),
       countyTaxRate: parseFloat(form.countyTaxRate || 0), ficaTaxRate: parseFloat(form.ficaTaxRate || 0)
     })
-    onClose()
+    // Note: The parent App.jsx handleSaveEmployee now manages closing the modal upon success.
   }
 
   const inputStyle = { width: "100%", background: "#131b27", border: "1px solid #1e2a38", color: "#e8f4f8", padding: "10px 14px", borderRadius: 8, fontFamily: "'Bitter',serif", fontSize: 13, outline: "none" }
@@ -151,7 +151,7 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
       <div className="bg-[#0f1821] border border-[#1e2a38] rounded-2xl p-6 w-full max-w-[440px] max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-5">
           <div className="text-[16px] font-bold text-[#e8f4f8]">{title}</div>
-          <button onClick={onClose} className="text-[#4a6a8a] text-[20px]">✕</button>
+          <button onClick={onClose} className="text-[#4a6a8a] text-[20px] hover:text-[#e8f4f8]">✕</button>
         </div>
         
         <div className="mb-4">
@@ -159,7 +159,7 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
           <input value={form.name} onChange={e=>f("name",e.target.value)} style={inputStyle} className={errors.name ? "border-[#ef476f]" : ""} />
         </div>
 
-        {/* --- CHANGED TO SHIFT ROLE HERE --- */}
+        {/* --- ADDED 'MANAGER' TO SHIFT ROLE HERE --- */}
         <div className="mb-4">
           <label style={labelStyle}>Shift Role</label>
           <select value={form.workRole} onChange={e=>f("workRole",e.target.value)} style={inputStyle}>
@@ -205,37 +205,13 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
         </div>
 
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 border border-[#2a4060] text-[#7ec8e3] rounded-lg text-[13px] font-bold">Cancel</button>
-          <button onClick={submit} className="flex-[2] py-3 bg-[#06d6a0] text-[#0d1117] rounded-lg text-[13px] font-bold">{saveLabel}</button>
+          <button onClick={onClose} className="flex-1 py-3 border border-[#2a4060] text-[#7ec8e3] hover:bg-[#1a2535] rounded-lg text-[13px] font-bold transition-colors">Cancel</button>
+          {/* THE FIXED VISIBLE SAVE BUTTON */}
+          <button onClick={submit} className="flex-[2] py-3 bg-[#06d6a0] hover:bg-[#05b586] text-[#0d1117] rounded-lg text-[13px] font-bold transition-colors">
+            {saveLabel || (initial ? "SAVE CHANGES" : "ADD TO ROSTER")}
+          </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-export function ManagerLogin({ onSuccess, onCancel }) {
-  const [step,setStep]=useState("select")
-  const [selected,setSelected]=useState(null)
-  
-  if(step==="select") return (
-    <div>
-      <div style={{fontSize:11,color:"#4a6a8a",letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:"'JetBrains Mono',monospace",marginBottom:16,textAlign:"center"}}>Select Account</div>
-      {MANAGER_USERS.map(u=>(
-        <button key={u.id} onClick={()=>{setSelected(u);setStep("pin")}}
-          style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 18px",background:"#131b27",border:"1px solid #1e2a38",borderRadius:10,cursor:"pointer",marginBottom:10,textAlign:"left"}}
-          onMouseEnter={e=>e.currentTarget.style.borderColor="#2a4060"}
-          onMouseLeave={e=>e.currentTarget.style.borderColor="#1e2a38"}>
-          <div><div style={{fontSize:14,fontWeight:600,color:"#e8f4f8"}}>{u.name}</div><div style={{fontSize:11,color:"#4a6a8a",marginTop:2,textTransform:"capitalize"}}>{u.userRole}</div></div>
-        </button>
-      ))}
-      <button onClick={onCancel} style={{width:"100%",background:"none",border:"none",color:"#4a6a8a",padding:"10px",cursor:"pointer",fontFamily:"'JetBrains Mono',monospace",fontSize:11}}>Back to Kiosk</button>
-    </div>
-  )
-  
-  return (
-    <div>
-      <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:14,fontWeight:600,color:"#e8f4f8"}}>{selected?.name}</div></div>
-      <PinPad correctPin={selected?.pin} label="MANAGER PIN" onSuccess={()=>onSuccess({userRole:selected.userRole,name:selected.name})} onCancel={()=>setStep("select")}/>
     </div>
   )
 }

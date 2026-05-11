@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "./lib/supabase"
 import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
-import { FaceScanUI, PinPad, EmployeeForm, ManagerLogin } from "./components/Forms"
+import { FaceScanUI, PinPad, EmployeeForm } from "./components/Forms"
 import * as XLSX from "xlsx"
 
 function getSundayKey(dateStr) {
@@ -86,16 +86,23 @@ export default function PineLakeApp() {
       const { data: logs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
       if (logs) {
         setAllLogs(logs)
-        const cState = {}; const rLogs = []; const seen = new Set()
+        const cState = {}
+        const rLogs = []
+        const seen = new Set()
         logs.forEach(log => {
           if (!seen.has(log.employee_id)) {
             seen.add(log.employee_id)
-            if (log.action === "IN" || log.action === "BREAK_END") cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
-            else if (log.action === "BREAK_START") cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
+            if (log.action === "IN" || log.action === "BREAK_END") {
+              cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
+            } else if (log.action === "BREAK_START") {
+              cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
+            }
           }
           if (rLogs.length < 50) {
             const emp = empData?.find(e => e.id === log.employee_id)
-            if (emp) rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
+            if (emp) {
+              rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
+            }
           }
         })
         setClockedIn(cState)
@@ -146,12 +153,15 @@ export default function PineLakeApp() {
     const summary = {}
     employees.forEach(emp => {
       const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-      let weekdayMs = 0, weekendMs = 0, lastIn = null
+      let weekdayMs = 0
+      let weekendMs = 0
+      let lastIn = null
       
       empLogs.forEach(log => {
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) lastIn = new Date(log.created_at).getTime()
         else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
-          const shiftStart = new Date(lastIn), dayOfWeek = shiftStart.getDay()
+          const shiftStart = new Date(lastIn)
+          const dayOfWeek = shiftStart.getDay()
           const duration = new Date(log.created_at).getTime() - lastIn
           if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
           else weekdayMs += duration
@@ -159,17 +169,22 @@ export default function PineLakeApp() {
         }
       })
       if (lastIn) {
-        const dayOfWeek = new Date(lastIn).getDay(), duration = Date.now() - lastIn
+        const dayOfWeek = new Date(lastIn).getDay()
+        const duration = Date.now() - lastIn
         if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
         else weekdayMs += duration
       }
       
-      const weekdayH = weekdayMs / 3600000, weekendH = weekendMs / 3600000
-      const regH = Math.min(weekdayH, 40), otH = Math.max(0, weekdayH - 40) + weekendH
+      const weekdayH = weekdayMs / 3600000
+      const weekendH = weekendMs / 3600000
+      const regH = Math.min(weekdayH, 40)
+      const otH = Math.max(0, weekdayH - 40) + weekendH
       const gross = (regH * emp.baseRate) + (otH * emp.baseRate * 1.5) + ((regH + otH) * (emp.bonusRate || 0))
       const employerTax = gross * 0.1095
-      const fed = gross * (emp.fedTaxRate / 100), state = gross * (emp.stateTaxRate / 100)
-      const county = gross * (emp.countyTaxRate / 100), fica = gross * (emp.ficaTaxRate / 100)
+      const fed = gross * (emp.fedTaxRate / 100)
+      const state = gross * (emp.stateTaxRate / 100)
+      const county = gross * (emp.countyTaxRate / 100)
+      const fica = gross * (emp.ficaTaxRate / 100)
       const totalEmpTaxes = fed + state + county + fica
 
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
@@ -193,8 +208,10 @@ export default function PineLakeApp() {
       const e = employees.find(emp => emp.id === r.employee_id)
       csv += `"${e?.name || r.employee_id}",${r.week_start_date},${r.total_hours},${r.pay_rate_at_time},${r.gross_pay},${r.fed_tax},${r.state_tax},${r.county_tax},${r.fica_tax},${r.employer_tax},${r.total_cost},${r.net_pay}\n`
     })
+    const blob = new Blob([csv], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
-    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
+    link.href = url
     link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`
     link.click()
   }
@@ -228,18 +245,39 @@ export default function PineLakeApp() {
   }
 
   async function handleSaveEmployee(empData) {
-    const payload = {
-      name: empData.name, role: empData.role, base_rate: empData.baseRate, bonus_rate: empData.bonusRate, 
-      pin: empData.pin, auth_method: empData.authMethod, avatar: empData.avatar,
-      fed_tax_rate: empData.fedTaxRate, state_tax_rate: empData.stateTaxRate, 
-      county_tax_rate: empData.countyTaxRate, fica_tax_rate: empData.ficaTaxRate
+    const dbPayload = {
+      name: empData.name,
+      role: empData.role || empData.workRole, 
+      base_rate: parseFloat(empData.baseRate),
+      bonus_rate: parseFloat(empData.bonusRate || 0),
+      pin: empData.pin,
+      auth_method: empData.authMethod || 'pin',
+      avatar: empData.avatar || empData.name.split(' ').map(n => n[0]).join('').toUpperCase(),
+      fed_tax_rate: parseFloat(empData.fedTaxRate || 12),
+      state_tax_rate: parseFloat(empData.stateTaxRate || 5.5),
+      county_tax_rate: parseFloat(empData.countyTaxRate || 0),
+      fica_tax_rate: parseFloat(empData.ficaTaxRate || 7.65)
     }
-    if (empData.id && String(empData.id).length < 10) {
-      await supabase.from("employees").update(payload).eq("id", empData.id)
-      setEmployees(p => p.map(e => e.id === empData.id ? { ...empData } : e))
-    } else {
-      const { data } = await supabase.from("employees").insert([payload]).select()
-      if (data) setEmployees(p => [...p, { ...empData, id: data[0].id }])
+
+    try {
+      if (empData.id && String(empData.id).length < 10) {
+        const { error } = await supabase.from("employees").update(dbPayload).eq("id", empData.id)
+        if (error) throw error
+        setEmployees(prev => prev.map(e => e.id === empData.id ? { ...empData, ...dbPayload } : e))
+        alert("Employee updated successfully")
+      } else {
+        const { data, error } = await supabase.from("employees").insert([dbPayload]).select()
+        if (error) throw error
+        if (data) {
+          setEmployees(prev => [...prev, { ...dbPayload, id: data[0].id }])
+          alert("New employee/manager created!")
+        }
+      }
+      setShowAddEmp(false)
+      setEditEmp(null)
+    } catch (err) {
+      console.error("Save Error:", err)
+      alert("Save failed: " + err.message)
     }
   }
 
@@ -295,7 +333,7 @@ export default function PineLakeApp() {
                 <div className="text-right">
                   {isW && <div className="text-[#06d6a0] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
                   {isB && <div className="text-[#fca311] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
-                  {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select</div>}
+                  {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select ➔</div>}
                 </div>
               </button>
             )
@@ -403,9 +441,46 @@ export default function PineLakeApp() {
     )
   }
 
+  // --- NEW MANAGER LOGIN FORM ---
   if(screen === "manager-login") return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-      <div className="w-full max-w-[300px]"><ManagerLogin onSuccess={sess=>{setMgrSession(sess); setScreen("manager-dashboard")}} onCancel={()=>setScreen("kiosk")}/></div>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault()
+          const email = e.target.email.value
+          const password = e.target.password.value
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+          if (error) return alert("Login failed: " + error.message)
+          
+          const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
+          if (empData && empData.role === "Manager") {
+            setMgrSession(data.session)
+            setScreen("manager-dashboard")
+          } else {
+            alert("Access Denied: You do not have Manager permissions.")
+            await supabase.auth.signOut()
+          }
+        }}
+        className="w-full max-w-[340px] bg-[#131b27] border border-[#1e2a38] p-6 rounded-2xl shadow-xl"
+      >
+        <div className="text-center mb-6">
+          <div className="text-[20px] font-bold text-[#e8f4f8]">Manager Access</div>
+          <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Secure Web Login</div>
+        </div>
+        
+        <div className="mb-4">
+          <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Email Address</label>
+          <input name="email" type="email" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
+        </div>
+        
+        <div className="mb-6">
+          <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Password</label>
+          <input name="password" type="password" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
+        </div>
+        
+        <button type="submit" className="w-full bg-[#7ec8e3] text-[#0d1117] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:opacity-90 transition-opacity mb-3">Sign In</button>
+        <button type="button" onClick={() => setScreen("kiosk")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Cancel</button>
+      </form>
     </div>
   )
 
@@ -417,8 +492,8 @@ export default function PineLakeApp() {
 
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[1000px] mx-auto pb-20 px-4 sm:px-6">
-        {showAddEmp && <EmployeeForm title="Add Employee" saveLabel="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
-        {editEmp && <EmployeeForm title="Edit Details" saveLabel="Save Changes" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
+        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
+        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
         
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
