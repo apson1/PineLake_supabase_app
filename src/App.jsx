@@ -546,10 +546,24 @@ export default function PineLakeApp() {
               {employees.map(emp => {
                 const isIN = !!clockedIn[emp.id], elapsed = getElapsed(emp.id), col = ROLE_COLORS[emp.role]||"#7ec8e3"
                 return (
-                  <div key={emp.id} className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
-                    <div className="flex-1"><div className="font-bold text-[13px]">{emp.name}</div><div className="text-[10px] mt-1" style={{color: col}}>{emp.role}</div></div>
-                    {isIN ? <div className="text-right w-full sm:w-auto mt-2 sm:mt-0 border-t sm:border-0 border-[#1e2a38] pt-2 sm:pt-0"><div className="font-mono text-[18px] font-bold text-[#06d6a0]">{fmtElapsed(elapsed)}</div><div className="text-[9px] text-[#4a8a5a] font-mono mt-1">Live Shift</div></div> : <div className="text-[10px] text-[#3a4a5a] font-mono">— not clocked in</div>}
+                  <div key={emp.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-[#111] text-[10px] sm:text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
+                      <div className="flex flex-col">
+                        <div className="font-bold text-[13px] sm:text-[14px] text-[#e8f4f8]">{emp.name}</div>
+                        <div className="text-[9px] sm:text-[10px] mt-0.5" style={{color: col}}>{emp.role}</div>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {isIN ? (
+                        <>
+                          <div className="font-mono text-[15px] sm:text-[18px] font-bold text-[#06d6a0] leading-none">{fmtElapsed(elapsed)}</div>
+                          <div className="text-[8px] sm:text-[9px] text-[#4a8a5a] font-mono mt-1 uppercase tracking-widest">Live Shift</div>
+                        </>
+                      ) : (
+                        <div className="text-[10px] text-[#3a4a5a] font-mono">— off clock</div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
