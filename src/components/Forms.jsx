@@ -163,7 +163,7 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
         <div className="mb-4">
           <label style={labelStyle}>Shift Role</label>
           <select value={form.workRole} onChange={e=>f("workRole",e.target.value)} style={inputStyle}>
-            {["Waterfront","Concessions","Activities","Lifeguard","Gate","Maintenance","Events"].map(r=><option key={r}>{r}</option>)}
+            {["Manager","Waterfront","Concessions","Activities","Lifeguard","Gate","Maintenance","Events"].map(r=><option key={r}>{r}</option>)}
           </select>
         </div>
 
