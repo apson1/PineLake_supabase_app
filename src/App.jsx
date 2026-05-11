@@ -283,7 +283,6 @@ export default function PineLakeApp() {
 
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
   
-  // Hide managers from Kiosk roster
   const kioskEmployees = employees.filter(e => !["Manager", "Site Manager", "Park Admin"].includes(e.role))
 
   if(screen === "kiosk") return (
@@ -318,7 +317,7 @@ export default function PineLakeApp() {
             return (
               <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px]" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
                   <div>
                     <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
                     <div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div>
@@ -340,7 +339,7 @@ export default function PineLakeApp() {
   if(screen === "kiosk-auth" && authEmp) return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
       <div className="w-full max-w-[320px]">
-        <div className="text-center mb-6"><div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[20px]" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[20px] font-bold">{authEmp.name}</div></div>
+        <div className="text-center mb-6"><div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[20px] shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[20px] font-bold">{authEmp.name}</div></div>
         {authEmp.authMethod === "face" ? <FaceScanUI onSuccess={()=>setScreen("kiosk-action-hub")} onCancel={()=>setScreen("kiosk")}/> : 
           <PinPad correctPin={authEmp.pin} label="ENTER PIN" onSuccess={()=>setScreen("kiosk-action-hub")} onCancel={()=>setScreen("kiosk")}/>}
       </div>
@@ -356,7 +355,7 @@ export default function PineLakeApp() {
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
         <div className="w-full max-w-[400px] bg-[#131b27] border border-[#1e2a38] rounded-2xl p-6 shadow-2xl text-center">
-           <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-xl" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div>
+           <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-xl shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div>
            <h2 className="text-2xl font-bold mb-1">Hello, {authEmp.name.split(" ")[0]}</h2>
            <div className="text-[#4a6a8a] text-[11px] mb-6 uppercase tracking-widest font-mono">Select an Action</div>
            {isW && <div className="text-[36px] font-mono font-bold text-[#06d6a0] mb-6">{fmtElapsed(elapsed)}</div>}
@@ -383,7 +382,7 @@ export default function PineLakeApp() {
       <div className="flex flex-col gap-3">
         {kioskEmployees.map(emp=>(
           <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("portal-auth")}} className="flex items-center gap-4 p-3.5 rounded-xl border border-[#1e2a38] bg-[#131b27] hover:border-[#2a4060] text-left w-full transition-all">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
             <div><div className="font-bold text-[13px] text-[#e8f4f8]">{emp.name}</div><div className="text-[10px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div></div>
           </button>
         ))}
@@ -394,7 +393,7 @@ export default function PineLakeApp() {
   if(screen === "portal-auth") return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
       <div className="w-full max-w-[300px]">
-        <div className="text-center mb-6"><div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[16px]" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[16px] font-bold">{authEmp.name}</div></div>
+        <div className="text-center mb-6"><div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[16px] shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[16px] font-bold">{authEmp.name}</div></div>
         <PinPad correctPin={authEmp.pin} label="PIN FOR PORTAL" onSuccess={()=>{setPortalEmp(authEmp); setScreen("portal-dashboard")}} onCancel={()=>setScreen("portal-select")}/>
       </div>
     </div>
@@ -444,7 +443,7 @@ export default function PineLakeApp() {
           
           const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
           
-          const validRoles = ["Manager", "Site Manager", "Park Admin"]
+          const validRoles = ["Site Manager", "Park Admin", "Manager"]
           
           if (empData && validRoles.includes(empData.role)) {
             setMgrSession(data.session)
@@ -491,8 +490,8 @@ export default function PineLakeApp() {
 
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[1000px] mx-auto pb-20 px-4 sm:px-6">
-        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)}/>}
-        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)}/>}
+        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)} />}
+        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)} />}
         
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
@@ -535,10 +534,24 @@ export default function PineLakeApp() {
               {employees.map(emp => {
                 const isIN = !!clockedIn[emp.id], elapsed = getElapsed(emp.id), col = ROLE_COLORS[emp.role]||"#7ec8e3"
                 return (
-                  <div key={emp.id} className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
-                    <div className="flex-1"><div className="font-bold text-[13px]">{emp.name}</div><div className="text-[10px] mt-1" style={{color: col}}>{emp.role}</div></div>
-                    {isIN ? <div className="text-right w-full sm:w-auto mt-2 sm:mt-0 border-t sm:border-0 border-[#1e2a38] pt-2 sm:pt-0"><div className="font-mono text-[18px] font-bold text-[#06d6a0]">{fmtElapsed(elapsed)}</div><div className="text-[9px] text-[#4a8a5a] font-mono mt-1">Live Shift</div></div> : <div className="text-[10px] text-[#3a4a5a] font-mono">— not clocked in</div>}
+                  <div key={emp.id} className={`flex items-center justify-between p-3 sm:p-4 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
+                      <div className="flex flex-col">
+                        <div className="font-bold text-[13px] sm:text-[14px] text-[#e8f4f8]">{emp.name}</div>
+                        <div className="text-[10px] sm:text-[11px] mt-0.5" style={{color: col}}>{emp.role}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {isIN ? (
+                        <>
+                          <div className="font-mono text-[16px] sm:text-[18px] font-bold text-[#06d6a0] leading-none">{fmtElapsed(elapsed)}</div>
+                          <div className="text-[8px] sm:text-[9px] text-[#4a8a5a] font-mono mt-1 uppercase tracking-widest">Live Shift</div>
+                        </>
+                      ) : (
+                        <div className="text-[10px] text-[#3a4a5a] font-mono">— off clock</div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -584,7 +597,7 @@ export default function PineLakeApp() {
                     <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
                       <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#111] text-[10px]" style={{backgroundColor: col}}>{emp.avatar}</div>
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#111] text-[10px] shrink-0" style={{backgroundColor: col}}>{emp.avatar}</div>
                           <div><div className="font-bold text-[12px] flex items-center gap-2">{emp.name} {isIN && <span className="bg-[#0a2a1a] text-[#06d6a0] text-[8px] px-1.5 py-0.5 rounded-full font-mono">⏱ LIVE</span>}</div><div className="text-[10px]" style={{color:col}}>{emp.role} • ${emp.baseRate}/hr</div></div>
                         </div>
                         <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#ef476f]">{fmtMoney(s.totalCost)}</div><div className="text-[9px] text-[#4a6a8a]">total cost</div></div>
@@ -670,7 +683,7 @@ export default function PineLakeApp() {
               <div className="text-[9px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-1.5">Employee</div>
               {employees.map(emp => (
                 <button key={emp.id} onClick={()=>setPayEmp(emp)} className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${payEmp.id === emp.id ? "bg-[#0e2030] border-[#7ec8e3]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#2a4060]"}`}>
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[#111] text-[9px]" style={{backgroundColor: ROLE_COLORS[emp.role]}}>{emp.avatar}</div>
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[#111] text-[9px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]}}>{emp.avatar}</div>
                   <div className="flex-1"><div className={`text-[12px] font-bold ${payEmp.id===emp.id?"text-[#7ec8e3]":"text-[#a0b8d0]"}`}>{emp.name}</div><div className="text-[9px] text-[#4a6a8a]">${emp.baseRate}/hr</div></div>
                   {clockedIn[emp.id] && <div className="text-[10px] text-[#06d6a0]">●</div>}
                 </button>
@@ -725,7 +738,7 @@ export default function PineLakeApp() {
             {employees.map(e => (
               <div key={e.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex justify-between items-center">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[13px]" style={{backgroundColor: ROLE_COLORS[e.role]}}>{e.avatar}</div>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[13px] shrink-0" style={{backgroundColor: ROLE_COLORS[e.role]}}>{e.avatar}</div>
                   <div><div className="text-[14px] font-bold">{e.name}</div><div className="text-[11px] text-[#4a6a8a] font-mono mt-0.5">{e.role.toUpperCase()}</div></div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -736,7 +749,7 @@ export default function PineLakeApp() {
                     <div className="w-px h-5 bg-[#1a3050]"></div>
                     <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{e.bonusRate>0?`$${e.bonusRate.toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
                   </div>
-                  <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors">✏</button>
+                  <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors shrink-0">✏</button>
                 </div>
               </div>
             ))}

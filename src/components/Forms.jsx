@@ -206,9 +206,9 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
         </div>
 
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 border border-[#2a4060] text-[#7ec8e3] rounded-lg text-[13px] font-bold hover:bg-[#1a2535]">Cancel</button>
-          <button onClick={submit} className="flex-[2] py-3 bg-[#06d6a0] text-[#0d1117] rounded-lg text-[13px] font-bold hover:bg-[#05b586] transition-colors">
-             {saveLabel || (initial ? "SAVE CHANGES" : "ADD TO ROSTER")}
+          <button onClick={onClose} className="flex-1 py-3 border border-[#2a4060] text-[#7ec8e3] hover:bg-[#1a2535] rounded-lg text-[13px] font-bold transition-colors">Cancel</button>
+          <button onClick={submit} className="flex-[2] py-3 bg-[#06d6a0] hover:bg-[#05b586] text-[#0d1117] rounded-lg text-[13px] font-bold transition-colors">
+            {saveLabel || (initial ? "SAVE CHANGES" : "ADD TO ROSTER")}
           </button>
         </div>
       </div>
