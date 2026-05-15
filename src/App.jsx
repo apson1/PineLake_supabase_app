@@ -54,23 +54,46 @@ export default function PineLakeApp() {
   
   const [managerSession, setMgrSession] = useState(null)
   const [mgrProfile, setMgrProfile] = useState(null) 
-  const [mgrLoginMode, setMgrLoginMode] = useState("select") // Controls the hybrid login screen
+  const [mgrLoginMode, setMgrLoginMode] = useState("select") 
   
   const [managerTab, setMgrTab] = useState("clock")
   const [payEmp, setPayEmp] = useState(null)
   
   const [showAddEmp, setShowAddEmp] = useState(false)
   const [editEmp, setEditEmp] = useState(null)
+  
   const [now, setNow] = useState(new Date())
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
 
   const activeWeekKey = getSundayKey(targetDate)
-  
+
+  // 1. Password Recovery Listener
+  useEffect(() => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        const newPassword = window.prompt("Enter your new secure password (minimum 6 characters):")
+        if (newPassword) {
+          const { error } = await supabase.auth.updateUser({ password: newPassword })
+          if (error) {
+            alert("Error: " + error.message)
+          } else {
+            alert("Password updated successfully.")
+          }
+        }
+        await supabase.auth.signOut()
+        setScreen("kiosk")
+      }
+    })
+    return () => { authListener.subscription.unsubscribe() }
+  }, [])
+
+  // 2. Live Timer
   useEffect(() => {
     const iv = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(iv)
   }, [])
 
+  // 3. Initial Data Load
   useEffect(() => {
     async function loadData() {
       const { data: empData } = await supabase.from("employees").select("*").order("id")
@@ -120,6 +143,7 @@ export default function PineLakeApp() {
     loadData()
   }, [])
 
+  // 4. Realtime Subscription
   useEffect(() => {
     if (employees.length === 0) return
     const channel = supabase.channel("live-clock").on("postgres_changes", { event: "INSERT", schema: "public", table: "clock_logs" }, (payload) => {
@@ -243,7 +267,7 @@ export default function PineLakeApp() {
     alert("Payroll finalized.")
   }
 
-async function handleSaveEmployee(empData) {
+  async function handleSaveEmployee(empData) {
     const dbPayload = {
       name: empData.name,
       role: empData.role || empData.workRole, 
@@ -259,7 +283,7 @@ async function handleSaveEmployee(empData) {
     }
 
     try {
-      if (empData.id) {
+      if (empData.id && String(empData.id).length < 10) {
         const { error } = await supabase.from("employees").update(dbPayload).eq("id", empData.id)
         if (error) throw error
         setEmployees(prev => prev.map(e => e.id === empData.id ? { ...empData, ...dbPayload } : e))
@@ -275,11 +299,22 @@ async function handleSaveEmployee(empData) {
       alert("Save failed: " + err.message)
     }
   }
+
   async function doClockAction(emp, type) {
+    const isOfficialKiosk = localStorage.getItem("official_kiosk_token")
+    if (!isOfficialKiosk && (type === "IN" || type === "OUT" || type === "BREAK_START" || type === "BREAK_END")) {
+      alert("SECURITY ERROR: You can only clock in or out from the designated park tablet.")
+      setAuthEmp(null)
+      setScreen("kiosk")
+      return
+    }
+
     const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
     if (authError) return alert("Security Error: Identity could not be verified.")
+    
     await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: type }])
     await supabase.auth.signOut()
+    
     setAuthEmp(null)
     setScreen("kiosk")
   }
@@ -540,9 +575,23 @@ async function handleSaveEmployee(empData) {
         <div className="pt-6 border-b border-[#1a2535] mb-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
             <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">{mgrProfile?.role || "Manager"} Dashboard</h1></div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#7ec8e3]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div></div>
               
+              <button onClick={() => {
+                const isKiosk = localStorage.getItem("official_kiosk_token")
+                if (isKiosk) {
+                  localStorage.removeItem("official_kiosk_token")
+                  alert("This device is NO LONGER the official kiosk. Clock-ins disabled here.")
+                } else {
+                  const token = Math.random().toString(36).substring(2) + Date.now().toString(36)
+                  localStorage.setItem("official_kiosk_token", token)
+                  alert("SUCCESS! This device is now registered as the Official Kiosk. Staff can now clock in.")
+                }
+              }} className="bg-[#fca311] text-[#0d1117] font-bold text-[10px] px-3 py-1.5 rounded transition-opacity hover:opacity-90 w-fit">
+                {localStorage.getItem("official_kiosk_token") ? "Unregister Kiosk" : "Register Kiosk"}
+              </button>
+
               <button onClick={async () => {
                 const newPass = window.prompt("Enter your new secure password (minimum 6 characters):")
                 if (newPass) {
