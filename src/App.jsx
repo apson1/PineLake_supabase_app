@@ -41,10 +41,12 @@ function parseTo24h(timeStr) {
 
 function formatShiftDisplay(shiftStr) {
   if (!shiftStr || shiftStr.toUpperCase() === "OFF") return "OFF"
+  
   const mainParts = shiftStr.split('|')
   const parts = mainParts[0].split("-")
-  const roleStr = mainParts[1] ? `\n(${mainParts[1]})` : ""
+  
   if (parts.length !== 2) return shiftStr
+  
   const formatTime = (t) => {
     let [h, m] = t.trim().split(":")
     if (!h || !m) return t
@@ -53,11 +55,20 @@ function formatShiftDisplay(shiftStr) {
     h = h % 12 || 12
     return `${h}:${m} ${ampm}`
   }
-  return `${formatTime(parts[0])} - ${formatTime(parts[1])}${roleStr}`
-}
-
-function fmtMoney(n) { 
-  return "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
+  
+  const timeText = `${formatTime(parts[0])} - ${formatTime(parts[1])}`
+  const roleStr = mainParts[1]
+  
+  if (roleStr) {
+    return (
+      <div className="flex flex-col items-end">
+        <div>{timeText}</div>
+        <div className="text-[9px] text-[#7ec8e3] mt-0.5 tracking-widest">{roleStr.toUpperCase()}</div>
+      </div>
+    )
+  }
+  
+  return timeText
 }
 
 export default function PineLakeApp() {
