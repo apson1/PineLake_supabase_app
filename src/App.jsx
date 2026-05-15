@@ -65,34 +65,7 @@ export default function PineLakeApp() {
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
 
   const activeWeekKey = getSundayKey(targetDate)
-const [now, setNow] = useState(new Date())
-  const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
-
-  const activeWeekKey = getSundayKey(targetDate)
-
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "PASSWORD_RECOVERY") {
-        const newPassword = window.prompt("Enter your new secure password (minimum 6 characters):")
-        if (newPassword) {
-          const { error } = await supabase.auth.updateUser({ password: newPassword })
-          if (error) {
-            alert("Error: " + error.message)
-          } else {
-            alert("Password updated successfully.")
-          }
-        }
-        await supabase.auth.signOut()
-        setScreen("kiosk")
-      }
-    })
-    return () => { authListener.subscription.unsubscribe() }
-  }, [])
-
-  useEffect(() => {
-    const iv = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(iv)
-  }, [])
+  
   useEffect(() => {
     const iv = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(iv)
