@@ -70,6 +70,9 @@ function formatShiftDisplay(shiftStr) {
   
   return timeText
 }
+function fmtMoney(n) { 
+  return "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
+}
 
 export default function PineLakeApp() {
   const [employees, setEmployees] = useState([])
