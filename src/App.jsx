@@ -4,6 +4,22 @@ import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveS
 import { FaceScanUI, PinPad, EmployeeForm } from "./components/Forms"
 import * as XLSX from "xlsx"
 
+// GPS Distance Calculator
+function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000; 
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2); 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
+  return R * c; 
+}
+
+const PARK_LAT = 35.7327; // Pine Lake Apex NC Latitude
+const PARK_LON = -78.8503; // Pine Lake Apex NC Longitude
+const MAX_DISTANCE_METERS = 50; 
+
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() - d.getDay())
@@ -25,7 +41,9 @@ function parseTo24h(timeStr) {
 
 function formatShiftDisplay(shiftStr) {
   if (!shiftStr || shiftStr.toUpperCase() === "OFF") return "OFF"
-  const parts = shiftStr.split("-")
+  const mainParts = shiftStr.split('|')
+  const parts = mainParts[0].split("-")
+  const roleStr = mainParts[1] ? `\n(${mainParts[1]})` : ""
   if (parts.length !== 2) return shiftStr
   const formatTime = (t) => {
     let [h, m] = t.trim().split(":")
@@ -35,7 +53,7 @@ function formatShiftDisplay(shiftStr) {
     h = h % 12 || 12
     return `${h}:${m} ${ampm}`
   }
-  return `${formatTime(parts[0])}\n${formatTime(parts[1])}`
+  return `${formatTime(parts[0])} - ${formatTime(parts[1])}${roleStr}`
 }
 
 function fmtMoney(n) { 
@@ -66,8 +84,8 @@ export default function PineLakeApp() {
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
 
   const activeWeekKey = getSundayKey(targetDate)
+  const availableRoles = ["Park Admin", "Site Manager", "Waterfront", "Concessions", "Activities", "Lifeguard", "Gate", "Maintenance", "Events"]
 
-  // 1. Password Recovery Listener
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "PASSWORD_RECOVERY") {
@@ -87,13 +105,11 @@ export default function PineLakeApp() {
     return () => { authListener.subscription.unsubscribe() }
   }, [])
 
-  // 2. Live Timer
   useEffect(() => {
     const iv = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(iv)
   }, [])
 
-  // 3. Initial Data Load
   useEffect(() => {
     async function loadData() {
       const { data: empData } = await supabase.from("employees").select("*").order("id")
@@ -143,7 +159,6 @@ export default function PineLakeApp() {
     loadData()
   }, [])
 
-  // 4. Realtime Subscription
   useEffect(() => {
     if (employees.length === 0) return
     const channel = supabase.channel("live-clock").on("postgres_changes", { event: "INSERT", schema: "public", table: "clock_logs" }, (payload) => {
@@ -180,7 +195,7 @@ export default function PineLakeApp() {
       
       empLogs.forEach(log => {
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) lastIn = new Date(log.created_at).getTime()
-        else if ((log.action === "OUT" || log.action === "BREAK_START") && lastIn) {
+        else if ((log.action === "OUT" || log.action === "BREAK_START" || log.action === "AUTO-OUT") && lastIn) {
           const shiftStart = new Date(lastIn)
           const dayOfWeek = shiftStart.getDay()
           const duration = new Date(log.created_at).getTime() - lastIn
@@ -319,6 +334,36 @@ export default function PineLakeApp() {
     setScreen("kiosk")
   }
 
+  async function handleGPSClockAction(emp, type) {
+    if (!navigator.geolocation) {
+      return alert("Error: Your device does not support GPS location.");
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const distance = getDistanceFromLatLonInMeters(
+          PARK_LAT, PARK_LON, 
+          position.coords.latitude, position.coords.longitude
+        );
+
+        if (distance > MAX_DISTANCE_METERS) {
+          return alert(`SECURITY ERROR: You are too far from the park. (Distance: ${Math.round(distance)}m)`);
+        }
+
+        const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
+        if (authError) return alert("Security Error: Identity could not be verified.")
+        
+        await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: type }])
+        await supabase.auth.signOut()
+        alert("Punch successful!");
+      },
+      (error) => {
+        alert("Error getting location. Please ensure location services are turned on for this browser.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
   
   const kioskEmployees = employees.filter(e => !["Manager", "Site Manager", "Park Admin"].includes(e.role))
@@ -441,12 +486,36 @@ export default function PineLakeApp() {
   if(screen === "portal-dashboard" && portalEmp) {
     const s = timesheets[portalEmp.id] || { hours: "0.00", gross: 0, netPay: 0 }
     const wk = schedules[activeWeekKey] || {}
+    const currentStatus = clockedIn[portalEmp.id];
+    const isW = currentStatus?.status === "IN";
+    const isB = currentStatus?.status === "BREAK";
+    const isO = !currentStatus;
+    const elapsed = getElapsed(portalEmp.id);
+
     return (
       <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
         <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center">
           <div><div className="text-[9px] text-[#4a6a8a] font-mono uppercase tracking-widest mb-1">Employee Portal</div><h1 className="text-[18px] font-bold">Hello, {portalEmp.name.split(" ")[0]}</h1></div>
           <button onClick={()=>{setPortalEmp(null); setScreen("kiosk")}} className="bg-[#1e2a38] text-[#e8e8e8] py-1.5 px-4 rounded-md text-[10px] hover:bg-[#ef476f] transition-colors">Log Out</button>
         </div>
+
+        <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 mb-5 shadow-lg text-center">
+          <div className="text-[12px] font-bold mb-4 text-[#e8f4f8]">Time Clock</div>
+           {isW && <div className="text-[28px] font-mono font-bold text-[#06d6a0] mb-4">{fmtElapsed(elapsed)}</div>}
+           {isB && <div className="text-[28px] font-mono font-bold text-[#fca311] mb-4">{fmtElapsed(elapsed)}</div>}
+           <div className="flex flex-col gap-3">
+              {isO && <button onClick={()=>handleGPSClockAction(portalEmp, "IN")} className="bg-[#06d6a0] text-[#0d1117] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">Clock In</button>}
+              {isW && (
+                 <>
+                   <button onClick={()=>handleGPSClockAction(portalEmp, "BREAK_START")} className="bg-[#1e2a38] text-[#e8f4f8] border border-[#2a4060] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">Start Break</button>
+                   <button onClick={()=>handleGPSClockAction(portalEmp, "OUT")} className="bg-[#ef476f] text-[#0d1117] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">Clock Out</button>
+                 </>
+              )}
+              {isB && <button onClick={()=>handleGPSClockAction(portalEmp, "BREAK_END")} className="bg-[#fca311] text-[#0d1117] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">End Break</button>}
+           </div>
+           <div className="text-[9px] text-[#4a6a8a] mt-4 font-mono">Location verified via GPS</div>
+        </div>
+
         <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 mb-5 shadow-lg">
           <div className="flex justify-between items-end mb-4 border-b border-[#1a2535] pb-4">
             <div><div className="text-[26px] font-mono font-bold text-[#06d6a0] leading-none">{s.hours}</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 uppercase tracking-widest">Total Hours</div></div>
@@ -470,7 +539,6 @@ export default function PineLakeApp() {
     )
   }
 
-  // --- HYBRID MANAGER LOGIN SYSTEM ---
   if(screen === "manager-login") {
     if (mgrLoginMode === "select") {
       return (
@@ -664,7 +732,7 @@ export default function PineLakeApp() {
                 {clockLog.slice(0, 8).map((l, i) => (
                   <div key={i} className="flex justify-between items-center bg-[#0d1117] p-2 rounded-lg mb-2 font-mono text-[11px]">
                     <div className="flex gap-3">
-                      <span className={l.action === "IN" ? "text-[#06d6a0] font-bold" : "text-[#ef476f] font-bold"}>{l.action}</span>
+                      <span className={l.action === "IN" ? "text-[#06d6a0] font-bold" : l.action === "AUTO-OUT" ? "text-[#fca311] font-bold" : "text-[#ef476f] font-bold"}>{l.action}</span>
                       <span className="text-[#a0b8d0]">{l.emp}</span>
                     </div>
                     <span className="text-[#4a6a8a]">{l.time}</span>
@@ -749,25 +817,41 @@ export default function PineLakeApp() {
                   <tr key={e.id} className="bg-[#0d1117]">
                     <td className="p-2.5 font-bold text-[12px] border-l-[3px] rounded-l-md" style={{borderLeftColor: ROLE_COLORS[e.role]}}>{e.name}</td>
                     {["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map(d => {
-                      const val = schedules[activeWeekKey]?.[d]?.[e.id] || "OFF", isO = val === "OFF"
+                      const val = schedules[activeWeekKey]?.[d]?.[e.id] || "OFF"
+                      const isO = val === "OFF"
+                      let start = "09:00", end = "17:00", shiftRole = e.role
+                      if (!isO) {
+                        const parts = val.split('|')
+                        const times = parts[0].split('-')
+                        start = times[0] || "09:00"
+                        end = times[1] || "17:00"
+                        shiftRole = parts[1] || e.role
+                      }
+                      
                       return (
                         <td key={d} className="p-1">
                           <button onClick={()=>{
                             const next = { ...schedules }; if(!next[activeWeekKey]) next[activeWeekKey] = {}
                             if(!next[activeWeekKey][d]) next[activeWeekKey][d] = {}
-                            next[activeWeekKey][d][e.id] = isO ? "09:00-17:00" : "OFF"
+                            next[activeWeekKey][d][e.id] = isO ? `09:00-17:00|${e.role}` : "OFF"
                             setSchedules(next)
                           }} className="text-[9px] text-[#7ec8e3] block mx-auto mb-1 font-mono uppercase">{isO ? "Set" : "Off"}</button>
                           {isO ? <div className="bg-[#1a140a] border border-[#fca31133] text-[#fca311] text-center text-[10px] font-bold py-2.5 rounded-md font-mono">OFF</div> :
                             <div className="flex flex-col bg-[#131b27] border border-[#2a4060] p-1 rounded-md gap-0.5">
-                              <input type="time" value={parseTo24h(val.split('-')[0])} onChange={ev=>{
-                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${ev.target.value}-${val.split('-')[1]}`
+                              <input type="time" value={parseTo24h(start)} onChange={ev=>{
+                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${ev.target.value}-${end}|${shiftRole}`
                                 setSchedules(next)
                               }} className="bg-transparent text-[10px] text-center font-mono focus:outline-none" style={{colorScheme:"dark"}}/>
-                              <input type="time" value={parseTo24h(val.split('-')[1])} onChange={ev=>{
-                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${val.split('-')[0]}-${ev.target.value}`
+                              <input type="time" value={parseTo24h(end)} onChange={ev=>{
+                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${start}-${ev.target.value}|${shiftRole}`
                                 setSchedules(next)
                               }} className="bg-transparent text-[10px] text-center font-mono focus:outline-none" style={{colorScheme:"dark"}}/>
+                              <select value={shiftRole} onChange={ev=>{
+                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${start}-${end}|${ev.target.value}`
+                                setSchedules(next)
+                              }} className="bg-transparent text-[9px] text-[#e8f4f8] text-center mt-1 focus:outline-none cursor-pointer">
+                                {availableRoles.map(r => <option key={r} value={r} className="bg-[#131b27]">{r}</option>)}
+                              </select>
                             </div>}
                         </td>
                       )
