@@ -16,8 +16,8 @@ function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
   return R * c; 
 }
 
-const PARK_LAT = 35.7327; // Pine Lake Apex NC Latitude
-const PARK_LON = -78.8503; // Pine Lake Apex NC Longitude
+const PARK_LAT = 40.649997; // Pine Lake Hartford Township, Indiana 46711 Latitude
+const PARK_LON = -85.023370; // Pine Lake Hartford Township, Indiana 46711 Longitude
 const MAX_DISTANCE_METERS = 50; 
 
 function getSundayKey(dateStr) {
