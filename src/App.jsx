@@ -16,8 +16,8 @@ function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
   return R * c; 
 }
 
-const PARK_LAT = 40.649997; // Pine Lake Hartford Township, Indiana 46711 Latitude
-const PARK_LON = -85.023370; // Pine Lake Hartford Township, Indiana 46711 Longitude
+const PARK_LAT = 40.649997; // Pine Lake Indiana Latitude
+const PARK_LON = -85.023370; // Pine Lake Indiana Longitude
 const MAX_DISTANCE_METERS = 50; 
 
 function getSundayKey(dateStr) {
@@ -70,6 +70,7 @@ function formatShiftDisplay(shiftStr) {
   
   return timeText
 }
+
 function fmtMoney(n) { 
   return "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
 }
@@ -761,7 +762,13 @@ export default function PineLakeApp() {
           <div className="flex flex-col gap-6">
             <div>
               <div className="flex justify-between items-center mb-4"><div className="text-[10px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono">Period To Date Summary</div>
-              <div className="flex gap-2"><button onClick={handleExportCSV} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">CSV</button><button onClick={handleExportXLSX} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">EXCEL</button><button onClick={handleFinalizePayroll} className="bg-[#06d6a0] text-[#0d1117] px-4 py-1.5 rounded font-bold text-[10px] uppercase">Finalize</button></div></div>
+              <div className="flex gap-2"><button onClick={handleExportCSV} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">CSV</button><button onClick={handleExportXLSX} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">EXCEL</button><button onClick={() => {
+                if (!managerSession) {
+                  alert("Security Lock: You must log out and use Secure Web Login (Email) to finalize payroll.")
+                  return
+                }
+                handleFinalizePayroll()
+              }} className="bg-[#06d6a0] text-[#0d1117] px-4 py-1.5 rounded font-bold text-[10px] uppercase">Finalize</button></div></div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
                 <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#7ec8e3] font-bold">{totalFacility.hours.toFixed(1)}h</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Hours</div></div>
                 <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#06d6a0] font-bold">{fmtMoney(totalFacility.gross)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Gross Wages</div></div>
@@ -813,7 +820,11 @@ export default function PineLakeApp() {
                   const pk = getSundayKey(prev.toISOString().split('T')[0])
                   if(schedules[pk]) setSchedules(p=>({...p, [activeWeekKey]: JSON.parse(JSON.stringify(p[pk]))}))
                 }} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded-lg text-[11px] hover:bg-[#1a2535]">Copy Prev Week</button>
-                <button onClick={async ()=>{
+                <button onClick={async () => {
+                  if (!managerSession) {
+                    alert("Security Lock: You must log out and use Secure Web Login (Email) to save schedules.")
+                    return
+                  }
                   const recs = []
                   const grid = schedules[activeWeekKey] || {}
                   for(const d of ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]){
@@ -934,7 +945,13 @@ export default function PineLakeApp() {
 
         {managerTab === "employees" && (
           <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-center mb-2"><h2 className="text-[14px] font-bold text-[#e8f4f8]">Staff Roster</h2><button onClick={()=>setShowAddEmp(true)} className="bg-[#7ec8e3] text-[#0d1117] px-4 py-2 rounded-lg font-bold text-[11px] hover:opacity-90">+ Add Employee</button></div>
+            <div className="flex justify-between items-center mb-2"><h2 className="text-[14px] font-bold text-[#e8f4f8]">Staff Roster</h2><button onClick={() => {
+              if (!managerSession) {
+                alert("Security Lock: You must log out and use Secure Web Login (Email) to modify staff.")
+                return
+              }
+              setShowAddEmp(true)
+            }} className="bg-[#7ec8e3] text-[#0d1117] px-4 py-2 rounded-lg font-bold text-[11px] hover:opacity-90">+ Add Employee</button></div>
             {employees.map(e => (
               <div key={e.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex justify-between items-center">
                 <div className="flex items-center gap-4">
@@ -949,7 +966,29 @@ export default function PineLakeApp() {
                     <div className="w-px h-5 bg-[#1a3050]"></div>
                     <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{Number(e.bonusRate)>0?`$${Number(e.bonusRate).toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
                   </div>
-                  <button onClick={()=>setEditEmp(e)} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors shrink-0">✏</button>
+                  <button onClick={() => {
+                    if (!managerSession) {
+                      alert("Security Lock: You must log out and use Secure Web Login (Email) to modify staff.")
+                      return
+                    }
+                    setEditEmp(e)
+                  }} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors shrink-0">✏</button>
+                  <button onClick={async () => {
+                    if (!managerSession) {
+                      alert("Security Lock: You must log out and use Secure Web Login (Email) to modify staff.")
+                      return
+                    }
+                    if (window.confirm("Are you sure you want to delete " + e.name + "?")) {
+                      const confirmationText = window.prompt("Type DELETE to confirm permanent removal:")
+                      if (confirmationText === "DELETE") {
+                        await supabase.from("employees").delete().eq("id", e.id)
+                        setEmployees(prev => prev.filter(emp => emp.id !== e.id))
+                        alert(e.name + " has been removed.")
+                      } else if (confirmationText !== null) {
+                        alert("Deletion canceled. The text did not match.")
+                      }
+                    }
+                  }} className="bg-[#ef476f] text-[#0d1117] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:opacity-90 transition-opacity shrink-0 ml-2">🗑</button>
                 </div>
               </div>
             ))}
