@@ -16,8 +16,8 @@ function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
   return R * c; 
 }
 
-const PARK_LAT = 40.651265; // Pine Lake Indiana Latitude
-const PARK_LON = -85.024552; // Pine Lake Indiana Longitude
+const PARK_LAT = 40.65031831539439; // Pine Lake Indiana Latitude
+const PARK_LON = -85.02451791580157; // Pine Lake Indiana Longitude
 const MAX_DISTANCE_METERS = 50; 
 
 function getSundayKey(dateStr) {
