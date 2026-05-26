@@ -1043,22 +1043,43 @@ if(screen === "kiosk") {
                 <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
                   <div className="flex justify-between items-center mb-4 border-b border-[#1a2535] pb-3">
                     <div className="text-[12px] font-bold text-[#e8f4f8]">Punch History: {tsEmp.name}</div>
-                    <button onClick={async () => {
+                    <button onClick={() => {
                       if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
-                      const newTime = new Date().toISOString()
-                      const { data, error } = await supabase.from('clock_logs').insert([{ employee_id: tsEmp.id, action: 'IN', created_at: newTime }]).select()
-                      if (!error && data) setAllLogs(prev => [data[0], ...prev])
+                      setEditLog({ id: 'draft' })
+                      const d = new Date()
+                      d.setHours(9, 0, 0, 0) 
+                      setLogEditData({ time: getLocalDatetimeString(d), action: 'IN' })
                     }} className="bg-[#1e2a38] border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] hover:bg-[#2a4060]">Add Missing Punch</button>
                   </div>
 
                   <div className="flex flex-col gap-2">
+                    {editLog?.id === 'draft' && (
+                      <div className="bg-[#0d1f14] border border-[#06d6a0] p-3 rounded-lg flex flex-col sm:flex-row gap-3 items-center mb-2 shadow-[0_0_15px_rgba(6,214,160,0.1)]">
+                        <div className="text-[10px] text-[#06d6a0] font-bold uppercase tracking-widest sm:w-16 text-center">NEW</div>
+                        <input type="datetime-local" value={logEditData.time} onChange={e => setLogEditData({...logEditData, time: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto flex-1" style={{colorScheme:"dark"}}/>
+                        <select value={logEditData.action} onChange={e => setLogEditData({...logEditData, action: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto">
+                          <option value="IN">IN</option><option value="OUT">OUT</option><option value="BREAK_START">BREAK_START</option><option value="BREAK_END">BREAK_END</option>
+                        </select>
+                        <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                          <button onClick={async () => {
+                            const utcDate = new Date(logEditData.time).toISOString()
+                            const { data, error } = await supabase.from('clock_logs').insert([{ employee_id: tsEmp.id, action: logEditData.action, created_at: utcDate }]).select()
+                            if (error) return alert("Insert failed: " + error.message)
+                            if (data) setAllLogs(prev => [data[0], ...prev])
+                            setEditLog(null)
+                          }} className="bg-[#06d6a0] text-[#0d1117] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Save New</button>
+                          <button onClick={()=>setEditLog(null)} className="bg-[#1e2a38] text-[#e8f4f8] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
                     {allLogs.filter(l => l.employee_id === tsEmp.id).slice(0, 30).map(log => {
                       const isEditing = editLog?.id === log.id;
                       const logDate = new Date(log.created_at);
                       
                       if (isEditing) return (
                         <div key={log.id} className="bg-[#0d1117] border border-[#7ec8e3] p-3 rounded-lg flex flex-col sm:flex-row gap-3 items-center">
-                          <input type="datetime-local" value={logEditData.time} onChange={e => setLogEditData({...logEditData, time: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto" style={{colorScheme:"dark"}}/>
+                          <input type="datetime-local" value={logEditData.time} onChange={e => setLogEditData({...logEditData, time: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto flex-1" style={{colorScheme:"dark"}}/>
                           <select value={logEditData.action} onChange={e => setLogEditData({...logEditData, action: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto">
                             <option value="IN">IN</option><option value="OUT">OUT</option><option value="BREAK_START">BREAK_START</option><option value="BREAK_END">BREAK_END</option><option value="AUTO-OUT">AUTO-OUT</option>
                           </select>
