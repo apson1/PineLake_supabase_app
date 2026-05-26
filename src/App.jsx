@@ -381,59 +381,74 @@ export default function PineLakeApp() {
 
   const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
   
-  const kioskEmployees = employees.filter(e => !["Manager", "Site Manager", "Park Admin"].includes(e.role))
+  const kioskEmployees = employees
   const managerEmployees = employees.filter(e => ["Manager", "Site Manager", "Park Admin"].includes(e.role))
 
-  if(screen === "kiosk") return (
-    <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
-      <div className="max-w-[700px] mx-auto pb-10 px-4 sm:px-6">
-        <div className="pt-8 pb-6 mb-4 border-b border-[#1a2535] flex flex-col items-center text-center">
-          <div className="text-[10px] text-[#7ec8e3] uppercase tracking-[0.2em] font-bold mb-2">Pine Lake Recreation</div>
-          <h1 className="text-[24px] font-bold text-[#e8f4f8] leading-tight mb-2">Time Clock Kiosk</h1>
-          <div className="font-mono text-[16px] font-semibold text-[#a0b8d0]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit", second:"2-digit"})}</div>
-        </div>
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <button onClick={()=>setScreen("portal-select")} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#7ec8e3] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
-            <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">👤</span>
-            <span className="text-[12px] font-bold text-[#e8f4f8]">Employee Portal</span>
-            <span className="text-[9px] text-[#4a6a8a] mt-1">View schedules & pay</span>
-          </button>
-          <button onClick={()=>{setMgrLoginMode("select"); setScreen("manager-login");}} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#fca311] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
-            <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">🔐</span>
-            <span className="text-[12px] font-bold text-[#e8f4f8]">Manager Access</span>
-            <span className="text-[9px] text-[#4a6a8a] mt-1">System administration</span>
-          </button>
-        </div>
-        <div className="text-[10px] text-[#4a6a8a] uppercase tracking-widest mb-3 font-bold border-b border-[#1a2535] pb-2">
-          Staff Roster <span className="text-[#06d6a0] ml-1">({activeCount} on clock)</span>
-        </div>
-        <div className="flex flex-col gap-3">
-          {kioskEmployees.map(emp => {
-            const s = clockedIn[emp.id]
-            const isW = s?.status === "IN"
-            const isB = s?.status === "BREAK"
-            const elapsed = getElapsed(emp.id)
-            return (
-              <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
-                  <div>
-                    <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
-                    <div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  {isW && <div className="text-[#06d6a0] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
-                  {isB && <div className="text-[#fca311] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
-                  {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select ➔</div>}
-                </div>
-              </button>
-            )
-          })}
+if(screen === "kiosk") {
+    const isOfficialKiosk = localStorage.getItem("official_kiosk_token")
+    return (
+      <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
+        <div className="max-w-[700px] mx-auto pb-10 px-4 sm:px-6">
+          <div className="pt-8 pb-6 mb-4 border-b border-[#1a2535] flex flex-col items-center text-center">
+            <div className="text-[10px] text-[#7ec8e3] uppercase tracking-[0.2em] font-bold mb-2">Pine Lake Recreation</div>
+            <h1 className="text-[24px] font-bold text-[#e8f4f8] leading-tight mb-2">Time Clock</h1>
+            <div className="font-mono text-[16px] font-semibold text-[#a0b8d0]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit", second:"2-digit"})}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <button onClick={()=>setScreen("portal-select")} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#7ec8e3] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
+              <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">👤</span>
+              <span className="text-[12px] font-bold text-[#e8f4f8]">Employee Portal</span>
+              <span className="text-[9px] text-[#4a6a8a] mt-1">View schedules & pay</span>
+            </button>
+            <button onClick={()=>{setMgrLoginMode("select"); setScreen("manager-login");}} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#fca311] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
+              <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">🔐</span>
+              <span className="text-[12px] font-bold text-[#e8f4f8]">Manager Access</span>
+              <span className="text-[9px] text-[#4a6a8a] mt-1">System administration</span>
+            </button>
+          </div>
+
+          {isOfficialKiosk ? (
+            <>
+              <div className="text-[10px] text-[#4a6a8a] uppercase tracking-widest mb-3 font-bold border-b border-[#1a2535] pb-2">
+                Staff Roster <span className="text-[#06d6a0] ml-1">({activeCount} on clock)</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {kioskEmployees.map(emp => {
+                  const s = clockedIn[emp.id]
+                  const isW = s?.status === "IN"
+                  const isB = s?.status === "BREAK"
+                  const elapsed = getElapsed(emp.id)
+                  return (
+                    <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
+                        <div>
+                          <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
+                          <div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {isW && <div className="text-[#06d6a0] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
+                        {isB && <div className="text-[#fca311] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
+                        {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select ➔</div>}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="mt-8 bg-[#131b27] border border-[#2a4060] rounded-xl p-8 text-center shadow-lg">
+              <div className="text-[32px] mb-4">📱</div>
+              <div className="text-[16px] font-bold text-[#e8f4f8] mb-2">Using your personal phone?</div>
+              <div className="text-[12px] text-[#a0b0c0] mb-6 max-w-[280px] mx-auto leading-relaxed">The main roster is locked to the park tablet. You must use the portal to verify your GPS location.</div>
+              <button onClick={()=>setScreen("portal-select")} className="bg-[#7ec8e3] text-[#0d1117] font-bold text-[13px] px-6 py-3 rounded-lg uppercase tracking-wide hover:opacity-90 transition-opacity w-full sm:w-auto">Open Employee Portal</button>
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   if(screen === "kiosk-auth" && authEmp) return (
     <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
