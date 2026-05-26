@@ -1098,27 +1098,28 @@ if(screen === "kiosk") {
                       )
 
                       return (
-                        <div key={log.id} className="bg-[#0d1117] border border-[#1e2a38] p-3 rounded-lg flex justify-between items-center group hover:border-[#2a4060] transition-colors">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-20 text-[10px] font-bold uppercase tracking-widest ${log.action === 'IN' || log.action === 'BREAK_END' ? 'text-[#06d6a0]' : log.action === 'AUTO-OUT' ? 'text-[#fca311]' : 'text-[#ef476f]'}`}>{log.action}</div>
-                            <div>
-                              <div className="text-[12px] text-[#e8f4f8]">{logDate.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric'})}</div>
-                              <div className="text-[10px] font-mono text-[#4a6a8a] mt-0.5">{logDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                        <div key={log.id} className="bg-[#0d1117] border border-[#1e2a38] p-3 rounded-lg flex justify-between items-center hover:border-[#2a4060] transition-colors gap-2">
+                          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+                            <div className={`w-16 sm:w-20 text-[10px] font-bold uppercase tracking-widest shrink-0 ${log.action === 'IN' || log.action === 'BREAK_END' ? 'text-[#06d6a0]' : log.action === 'AUTO-OUT' ? 'text-[#fca311]' : 'text-[#ef476f]'}`}>{log.action}</div>
+                            <div className="truncate">
+                              <div className="text-[11px] sm:text-[12px] text-[#e8f4f8] truncate">{logDate.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric'})}</div>
+                              <div className="text-[9px] sm:text-[10px] font-mono text-[#4a6a8a] mt-0.5">{logDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                             </div>
                           </div>
-                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* Fixed Action Row: Visible on mobile, no hover required */}
+                          <div className="flex gap-1.5 shrink-0">
                             <button onClick={() => {
                               if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
                               setEditLog(log)
                               setLogEditData({ time: getLocalDatetimeString(logDate), action: log.action })
-                            }} className="text-[#7ec8e3] bg-[#1a2a3a] p-1.5 rounded hover:bg-[#2a4060] text-[12px]">✏️</button>
+                            }} className="text-[#7ec8e3] bg-[#1a2a3a] border border-[#2a4060] p-2 rounded-lg text-[11px] h-8 w-8 flex items-center justify-center transition-colors hover:bg-[#2a4060]">✏️</button>
                             <button onClick={async () => {
                               if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
                               if(window.confirm("Permanently delete this time punch?")) {
                                 await supabase.from('clock_logs').delete().eq('id', log.id)
                                 setAllLogs(prev => prev.filter(l => l.id !== log.id))
                               }
-                            }} className="text-[#ef476f] bg-[#2a1a1a] p-1.5 rounded hover:bg-[#4a2a2a] text-[12px]">🗑</button>
+                            }} className="text-[#ef476f] bg-[#2a1a1a] border border-[#4a2a2a] p-2 rounded-lg text-[11px] h-8 w-8 flex items-center justify-center transition-colors hover:bg-[#4a2a2a]">🗑</button>
                           </div>
                         </div>
                       )
