@@ -1063,9 +1063,10 @@ if(screen === "kiosk") {
                         <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                           <button onClick={async () => {
                             const utcDate = new Date(logEditData.time).toISOString()
-                            const { data, error } = await supabase.from('clock_logs').insert([{ employee_id: tsEmp.id, action: logEditData.action, created_at: utcDate }]).select()
+                            const { error } = await supabase.from('clock_logs').insert([{ employee_id: tsEmp.id, action: logEditData.action, created_at: utcDate }])
                             if (error) return alert("Insert failed: " + error.message)
-                            if (data) setAllLogs(prev => [data[0], ...prev])
+                            
+                            // The app relies strictly on the database real-time listener to update the UI
                             setEditLog(null)
                           }} className="bg-[#06d6a0] text-[#0d1117] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Save New</button>
                           <button onClick={()=>setEditLog(null)} className="bg-[#1e2a38] text-[#e8f4f8] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Cancel</button>
@@ -1127,7 +1128,7 @@ if(screen === "kiosk") {
               )}
             </div>
           </div>
-        )}        
+        )}
 
       </div>
     )
