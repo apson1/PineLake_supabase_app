@@ -98,6 +98,17 @@ export default function PineLakeApp() {
   const [now, setNow] = useState(new Date())
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
 
+  // Timesheet Editor States
+  const [tsEmp, setTsEmp] = useState(null)
+  const [editLog, setEditLog] = useState(null)
+  const [logEditData, setLogEditData] = useState({ time: "", action: "" })
+
+  // Helper to convert UTC to Local for the datetime-local input
+  function getLocalDatetimeString(dateObj) {
+    const pad = (n) => n.toString().padStart(2, '0')
+    return `${dateObj.getFullYear()}-${pad(dateObj.getMonth()+1)}-${pad(dateObj.getDate())}T${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`
+  }
+
   const activeWeekKey = getSundayKey(targetDate)
   const availableRoles = ["Park Admin", "Site Manager", "Waterfront", "Concessions", "Activities", "Lifeguard", "Gate", "Maintenance", "Events"]
 
@@ -662,7 +673,8 @@ if(screen === "kiosk") {
       { id: "labor", label: "LABOR COST" },
       { id: "schedule", label: "SCHEDULER" },
       { id: "payroll", label: "PAY CALC" },
-      { id: "employees", label: "EMPLOYEES" }
+      { id: "employees", label: "EMPLOYEES" },
+      { id: "timesheets", label: "TIMESHEETS" }
     ]
 
     return (
@@ -1009,6 +1021,93 @@ if(screen === "kiosk") {
             ))}
           </div>
         )}
+
+        {managerTab === "timesheets" && (
+          <div className="flex flex-col md:flex-row gap-5">
+            {/* Left Column: Employee Selector */}
+            <div className="w-full md:w-1/3 flex flex-col gap-2">
+              <div className="text-[9px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-1.5">Select Staff Member</div>
+              {employees.map(emp => (
+                <button key={emp.id} onClick={()=>{setTsEmp(emp); setEditLog(null);}} className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${tsEmp?.id === emp.id ? "bg-[#0e2030] border-[#7ec8e3]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#2a4060]"}`}>
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[#111] text-[9px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]}}>{emp.avatar}</div>
+                  <div className="flex-1"><div className={`text-[12px] font-bold ${tsEmp?.id===emp.id?"text-[#7ec8e3]":"text-[#a0b8d0]"}`}>{emp.name}</div></div>
+                </button>
+              ))}
+            </div>
+
+            {/* Right Column: Punch Editor */}
+            <div className="w-full md:w-2/3 flex flex-col gap-4">
+              {!tsEmp ? (
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-8 text-center text-[#4a6a8a] text-[12px]">Select an employee to view and edit their time punches.</div>
+              ) : (
+                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
+                  <div className="flex justify-between items-center mb-4 border-b border-[#1a2535] pb-3">
+                    <div className="text-[12px] font-bold text-[#e8f4f8]">Punch History: {tsEmp.name}</div>
+                    <button onClick={async () => {
+                      if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
+                      const newTime = new Date().toISOString()
+                      const { data, error } = await supabase.from('clock_logs').insert([{ employee_id: tsEmp.id, action: 'IN', created_at: newTime }]).select()
+                      if (!error && data) setAllLogs(prev => [data[0], ...prev])
+                    }} className="bg-[#1e2a38] border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] hover:bg-[#2a4060]">Add Missing Punch</button>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    {allLogs.filter(l => l.employee_id === tsEmp.id).slice(0, 30).map(log => {
+                      const isEditing = editLog?.id === log.id;
+                      const logDate = new Date(log.created_at);
+                      
+                      if (isEditing) return (
+                        <div key={log.id} className="bg-[#0d1117] border border-[#7ec8e3] p-3 rounded-lg flex flex-col sm:flex-row gap-3 items-center">
+                          <input type="datetime-local" value={logEditData.time} onChange={e => setLogEditData({...logEditData, time: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto" style={{colorScheme:"dark"}}/>
+                          <select value={logEditData.action} onChange={e => setLogEditData({...logEditData, action: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto">
+                            <option value="IN">IN</option><option value="OUT">OUT</option><option value="BREAK_START">BREAK_START</option><option value="BREAK_END">BREAK_END</option><option value="AUTO-OUT">AUTO-OUT</option>
+                          </select>
+                          <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                            <button onClick={async () => {
+                              const utcDate = new Date(logEditData.time).toISOString()
+                              const { error } = await supabase.from('clock_logs').update({ action: logEditData.action, created_at: utcDate }).eq('id', log.id)
+                              if (error) return alert("Update failed: " + error.message)
+                              setAllLogs(prev => prev.map(l => l.id === log.id ? { ...l, action: logEditData.action, created_at: utcDate } : l))
+                              setEditLog(null)
+                            }} className="bg-[#06d6a0] text-[#0d1117] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Save</button>
+                            <button onClick={()=>setEditLog(null)} className="bg-[#1e2a38] text-[#e8f4f8] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Cancel</button>
+                          </div>
+                        </div>
+                      )
+
+                      return (
+                        <div key={log.id} className="bg-[#0d1117] border border-[#1e2a38] p-3 rounded-lg flex justify-between items-center group hover:border-[#2a4060] transition-colors">
+                          <div className="flex items-center gap-4">
+                            <div className={`w-20 text-[10px] font-bold uppercase tracking-widest ${log.action === 'IN' || log.action === 'BREAK_END' ? 'text-[#06d6a0]' : log.action === 'AUTO-OUT' ? 'text-[#fca311]' : 'text-[#ef476f]'}`}>{log.action}</div>
+                            <div>
+                              <div className="text-[12px] text-[#e8f4f8]">{logDate.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric'})}</div>
+                              <div className="text-[10px] font-mono text-[#4a6a8a] mt-0.5">{logDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => {
+                              if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
+                              setEditLog(log)
+                              setLogEditData({ time: getLocalDatetimeString(logDate), action: log.action })
+                            }} className="text-[#7ec8e3] bg-[#1a2a3a] p-1.5 rounded hover:bg-[#2a4060] text-[12px]">✏️</button>
+                            <button onClick={async () => {
+                              if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
+                              if(window.confirm("Permanently delete this time punch?")) {
+                                await supabase.from('clock_logs').delete().eq('id', log.id)
+                                setAllLogs(prev => prev.filter(l => l.id !== log.id))
+                              }
+                            }} className="text-[#ef476f] bg-[#2a1a1a] p-1.5 rounded hover:bg-[#4a2a2a] text-[12px]">🗑</button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}        
+
       </div>
     )
   }
