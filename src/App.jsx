@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react"
 import { supabase, IS_MOCK_DATABASE, MOCK_ADMIN_EMAIL, MOCK_MGR_EMAIL } from "./lib/supabase"
 import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
@@ -52,12 +53,12 @@ function parseTo24h(timeStr) {
 
 function formatShiftDisplay(shiftStr) {
   if (!shiftStr || shiftStr.toUpperCase() === "OFF") return "OFF"
-  
+
   const mainParts = shiftStr.split("|")
   const parts = mainParts[0].split("-")
-  
+
   if (parts.length !== 2) return shiftStr
-  
+
   const formatTime = (t) => {
     let [h, m] = t.trim().split(":")
     if (!h || !m) return t
@@ -66,10 +67,10 @@ function formatShiftDisplay(shiftStr) {
     h = h % 12 || 12
     return `${h}:${m} ${ampm}`
   }
-  
+
   const timeText = `${formatTime(parts[0])} - ${formatTime(parts[1])}`
   const roleStr = mainParts[1]
-  
+
   if (roleStr) {
     return (
       <div className="flex flex-col items-end">
@@ -78,12 +79,12 @@ function formatShiftDisplay(shiftStr) {
       </div>
     )
   }
-  
+
   return timeText
 }
 
-function fmtMoney(n) { 
-  return "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") 
+function fmtMoney(n) {
+  return "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
 
 export default function PineLakeApp() {
@@ -104,7 +105,7 @@ export default function PineLakeApp() {
     flag: "GREEN"
   })
   const [capturedPhoto, setCapturedPhoto] = useState(null)
-  
+
   // Connection states
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [offlineCount, setOfflineCount] = useState(getOfflineQueueLength())
@@ -112,14 +113,14 @@ export default function PineLakeApp() {
   // Authentication selection states
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
-  
+
   // Manager access states
   const [managerSession, setMgrSession] = useState(null)
-  const [mgrProfile, setMgrProfile] = useState(null) 
-  const [mgrLoginMode, setMgrLoginMode] = useState("select") 
+  const [mgrProfile, setMgrProfile] = useState(null)
+  const [mgrLoginMode, setMgrLoginMode] = useState("select")
   const [showAddEmp, setShowAddEmp] = useState(false)
   const [editEmp, setEditEmp] = useState(null)
-  
+
   const [now, setNow] = useState(new Date())
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split("T")[0])
 
@@ -179,7 +180,7 @@ export default function PineLakeApp() {
         const temp = Math.round(current.temperature_2m)
         const wind = Math.round(current.wind_speed_10m)
         const code = current.weather_code
-        
+
         let text = "Sunny"
         if (code === 0) text = "Sunny"
         else if (code >= 1 && code <= 3) text = "Partly Cloudy"
@@ -190,7 +191,7 @@ export default function PineLakeApp() {
         else if (code >= 95) text = "Thunderstorm"
 
         const waterTemp = Math.max(55, Math.min(78, temp - 8))
-        
+
         let flag = "GREEN"
         if (wind > 18 || waterTemp < 60 || code >= 95) {
           flag = "RED"
@@ -210,7 +211,7 @@ export default function PineLakeApp() {
         console.error("Failed to fetch weather:", err)
       }
     }
-    
+
     fetchWeather()
     const iv = setInterval(fetchWeather, 600000) // 10 minutes
     return () => clearInterval(iv)
@@ -229,7 +230,7 @@ export default function PineLakeApp() {
     } else {
       bgClasses = ["bg-gradient-to-b", "from-[#05070f]", "to-[#0a0f1d]", "min-h-screen"]
     }
-    
+
     document.body.className = ""
     document.body.classList.add(...bgClasses)
   }, [currentHour])
@@ -268,19 +269,19 @@ export default function PineLakeApp() {
         // Online fetch
         const { data: fetchedEmp } = await supabase.from("employees").select("*").order("id")
         empData = fetchedEmp || []
-        
+
         const { data: fetchedLogs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
         logs = fetchedLogs || []
-        
+
         const { data: fetchedSched } = await supabase.from("schedules").select("*")
         schedData = fetchedSched || []
 
         const { data: fetchedAnnouncements } = await supabase.from("announcements").select("*").order("created_at", { ascending: false })
         announcementsData = fetchedAnnouncements || []
-        
+
         // Cache data for offline launch
         cacheEmployees(empData)
-        
+
         // Structure schedules to cache
         const schedMap = {}
         schedData.forEach(row => {
@@ -293,13 +294,13 @@ export default function PineLakeApp() {
         // Offline load from cache
         empData = getCachedEmployees()
         const cachedSchedules = getCachedSchedules()
-        
+
         // Load offline clock logs from LocalStorage
         logs = JSON.parse(localStorage.getItem("pinelake_clock_logs") || "[]")
-        
+
         // Load announcements from LocalStorage
         announcementsData = JSON.parse(localStorage.getItem("pinelake_announcements") || "[]")
-        
+
         // Map cached schedules directly
         setSchedules(cachedSchedules)
       }
@@ -334,7 +335,7 @@ export default function PineLakeApp() {
       const cState = {}
       const rLogs = []
       const seen = new Set()
-      
+
       logs.forEach(log => {
         if (!seen.has(log.employee_id)) {
           seen.add(log.employee_id)
@@ -344,7 +345,7 @@ export default function PineLakeApp() {
             cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
           }
         }
-        
+
         if (rLogs.length < 50) {
           const emp = empData?.find(e => e.id === log.employee_id)
           if (emp) {
@@ -388,7 +389,7 @@ export default function PineLakeApp() {
   // Real-time updates subscription hook
   useEffect(() => {
     if (employees.length === 0) return
-    
+
     const channel = supabase.channel("live-clock").on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "clock_logs" },
@@ -396,7 +397,7 @@ export default function PineLakeApp() {
         const log = payload.new
         const emp = employees.find(e => e.id === log.employee_id)
         if (!emp) return
-        
+
         setAllLogs(prev => [log, ...prev])
         setClockedIn(prev => {
           const next = { ...prev }
@@ -433,11 +434,11 @@ export default function PineLakeApp() {
       const empLogs = allLogs
         .filter(l => l.employee_id === emp.id)
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        
+
       let weekdayMs = 0
       let weekendMs = 0
       let lastIn = null
-      
+
       empLogs.forEach(log => {
         if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) {
           lastIn = new Date(log.created_at).getTime()
@@ -450,19 +451,19 @@ export default function PineLakeApp() {
           lastIn = null
         }
       })
-      
+
       if (lastIn) {
         const dayOfWeek = new Date(lastIn).getDay()
         const duration = Date.now() - lastIn
         if (dayOfWeek === 0 || dayOfWeek === 6) weekendMs += duration
         else weekdayMs += duration
       }
-      
+
       const weekdayH = weekdayMs / 3600000
       const weekendH = weekendMs / 3600000
       const regH = Math.min(weekdayH, 40)
       const otH = Math.max(0, weekdayH - 40) + weekendH
-      
+
       const baseR = Number(emp.baseRate || 0)
       const bonusR = Number(emp.bonusRate || 0)
 
@@ -483,7 +484,7 @@ export default function PineLakeApp() {
         liveH: (liveMs / 3600000).toFixed(2),
         gross,
         employerTax,
-        totalCost: gross + employerTax, 
+        totalCost: gross + employerTax,
         empTaxes: totalEmpTaxes,
         netPay: gross - totalEmpTaxes,
         fed,
@@ -560,9 +561,9 @@ export default function PineLakeApp() {
         net_pay: s.netPay
       }
     }).filter(r => r.total_hours > 0)
-    
+
     if (records.length === 0) return alert("No hours logged to save.")
-    
+
     const { error } = await supabase.from("payroll_history").insert(records)
     if (error) {
       alert("Failed to finalize payroll: " + error.message)
@@ -575,7 +576,7 @@ export default function PineLakeApp() {
   async function handleSaveEmployee(empData) {
     const dbPayload = {
       name: empData.name,
-      role: empData.role || empData.workRole, 
+      role: empData.role || empData.workRole,
       base_rate: parseFloat(empData.baseRate || 0),
       bonus_rate: parseFloat(empData.bonusRate || 0),
       pin: empData.pin,
@@ -627,7 +628,7 @@ export default function PineLakeApp() {
     // OFFLINE QUEUE TRIGGER
     if (!isOnlineMode) {
       const offlineLogRec = queueOfflinePunch(emp.id, type)
-      
+
       // Update state immediately for local representation
       setClockedIn(prev => {
         const next = { ...prev }
@@ -675,7 +676,7 @@ export default function PineLakeApp() {
         setCapturedPhoto(null)
         return alert("Security Error: Identity verification failed.")
       }
-      
+
       const { error: insertError } = await supabase.from("clock_logs").insert([{
         employee_id: emp.id,
         action: type,
@@ -777,10 +778,10 @@ export default function PineLakeApp() {
             </div>
             <h2 className="text-xl font-black text-white font-heading mb-1">Hello, {authEmp.name.split(" ")[0]}</h2>
             <div className="text-gray-500 text-[10px] mb-6 uppercase tracking-widest font-mono">Select Action</div>
-            
+
             {isW && <div className="text-4xl font-mono font-black text-[#06d6a0] mb-6">{fmtElapsed(elapsed)}</div>}
             {isB && <div className="text-4xl font-mono font-black text-[#fca311] mb-6">{fmtElapsed(elapsed)}</div>}
-            
+
             <div className="flex flex-col gap-4">
               {isO && (
                 <button
@@ -815,7 +816,7 @@ export default function PineLakeApp() {
                 </button>
               )}
             </div>
-            
+
             <button
               onClick={() => setScreen("kiosk")}
               className="mt-6 text-gray-500 hover:text-white text-[10px] font-mono tracking-widest uppercase py-1.5 px-4 rounded border border-transparent hover:border-slate-800 cursor-pointer transition-colors"
@@ -840,7 +841,7 @@ export default function PineLakeApp() {
               Back
             </button>
           </div>
-          
+
           <div className="flex flex-col gap-3">
             {employees.map(emp => (
               <button
@@ -1007,12 +1008,12 @@ export default function PineLakeApp() {
                 e.preventDefault()
                 const email = e.target.email.value
                 const password = e.target.password.value
-                
+
                 const { data, error } = await supabase.auth.signInWithPassword({ email, password })
                 if (error) return alert("Login failed: " + error.message)
-                
+
                 let managerUser = null
-                
+
                 if (IS_MOCK_DATABASE) {
                   // In mock database mode, check mock accounts
                   const emps = JSON.parse(localStorage.getItem("pinelake_employees") || "[]")
@@ -1022,7 +1023,7 @@ export default function PineLakeApp() {
                   const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
                   managerUser = empData
                 }
-                
+
                 const validRoles = ["Site Manager", "Park Admin", "Manager"]
                 if (managerUser && validRoles.includes(managerUser.role)) {
                   setMgrSession(data.session)
@@ -1063,7 +1064,7 @@ export default function PineLakeApp() {
                   className="w-full bg-slate-900 border border-slate-800 text-xs text-white rounded-xl p-3 focus:outline-none focus:border-[#7ec8e3]/80"
                 />
               </div>
-              
+
               <button
                 type="submit"
                 className="w-full bg-[#7ec8e3] text-[#070a13] py-3.5 rounded-xl font-heading font-black text-xs uppercase tracking-wider hover:bg-[#68b4d0] transition-colors cursor-pointer mb-3"
