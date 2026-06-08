@@ -1,1 +1,98 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-heading: "Outfit", sans-serif;
+  --font-mono: "Fira Code", monospace;
+  
+  --color-brand-light: #7ec8e3;
+  --color-brand-primary: #00b4d8;
+  --color-brand-success: #06d6a0;
+  --color-brand-warning: #fca311;
+  --color-brand-danger: #ef476f;
+  
+  --color-bg-darkest: #070a13;
+  --color-bg-dark: #0b0f19;
+  --color-bg-card: #111827;
+  --color-bg-card-hover: #1e293b;
+}
+
+/* Custom base styles and scrollbars */
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-darkest);
+    color: #f3f4f6;
+    overflow-x: hidden;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* Glow and pulse custom utilities */
+.glow-success {
+  box-shadow: 0 0 15px rgba(6, 214, 160, 0.15);
+}
+
+.glow-warning {
+  box-shadow: 0 0 15px rgba(252, 163, 17, 0.15);
+}
+
+.glow-brand {
+  box-shadow: 0 0 15px rgba(126, 200, 227, 0.15);
+}
+
+/* Custom thin scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Modern glass container */
+.glass-panel {
+  background: rgba(17, 24, 39, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Keyframe Animations */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake 0.2s ease-in-out 0s 2;
+}
+
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.animate-radar {
+  animation: radar-pulse 2s infinite ease-out;
+}

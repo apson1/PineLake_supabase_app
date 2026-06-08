@@ -1,29 +1,40 @@
 import { useState, useEffect } from "react"
-import { supabase } from "./lib/supabase"
+import { supabase, IS_MOCK_DATABASE, MOCK_ADMIN_EMAIL, MOCK_MGR_EMAIL } from "./lib/supabase"
 import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
-import { FaceScanUI, PinPad, EmployeeForm } from "./components/Forms"
-import * as XLSX from "xlsx"
+import { EmployeeForm } from "./components/Forms"
+import PinPad from "./components/PinPad"
+import FaceScanUI from "./components/FaceScanUI"
+import KioskView from "./components/KioskView"
+import PortalView from "./components/PortalView"
+import ManagerDashboard from "./components/ManagerDashboard"
+import WeatherEffects from "./components/WeatherEffects"
 
-// GPS Distance Calculator
-function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000; 
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2); 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
-  return R * c; 
+function generatePunchSignature(empId, action, timestamp, photo, coords) {
+  const inputStr = `${empId}-${action}-${timestamp}-${photo.substring(0, 100)}-${coords ? coords.latitude : 'kiosk'}`;
+  let hash = 0;
+  for (let i = 0; i < inputStr.length; i++) {
+    const char = inputStr.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, "0") + "f8a9e2c4b7d105e";
+  return "SEC-SIG-" + hex.toUpperCase().substring(0, 24);
 }
-
-const PARK_LAT = 40.65031831539439; // Pine Lake Indiana Latitude
-const PARK_LON = -85.02451791580157; // Pine Lake Indiana Longitude
-const MAX_DISTANCE_METERS = 50; 
+import {
+  cacheEmployees,
+  cacheSchedules,
+  getCachedEmployees,
+  getCachedSchedules,
+  queueOfflinePunch,
+  getOfflineQueueLength,
+  syncOfflinePunches
+} from "./lib/offlineSync"
+import * as XLSX from "xlsx"
 
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().split('T')[0]
+  return d.toISOString().split("T")[0]
 }
 
 function parseTo24h(timeStr) {
@@ -34,7 +45,7 @@ function parseTo24h(timeStr) {
     h = parseInt(h, 10)
     if (ampm?.toUpperCase() === "PM" && h < 12) h += 12
     if (ampm?.toUpperCase() === "AM" && h === 12) h = 0
-    return `${h.toString().padStart(2, '0')}:${m}`
+    return `${h.toString().padStart(2, "0")}:${m}`
   }
   return "09:00"
 }
@@ -42,7 +53,7 @@ function parseTo24h(timeStr) {
 function formatShiftDisplay(shiftStr) {
   if (!shiftStr || shiftStr.toUpperCase() === "OFF") return "OFF"
   
-  const mainParts = shiftStr.split('|')
+  const mainParts = shiftStr.split("|")
   const parts = mainParts[0].split("-")
   
   if (parts.length !== 2) return shiftStr
@@ -76,42 +87,154 @@ function fmtMoney(n) {
 }
 
 export default function PineLakeApp() {
+  // Global States
   const [employees, setEmployees] = useState([])
   const [schedules, setSchedules] = useState({})
   const [clockedIn, setClockedIn] = useState({})
   const [allLogs, setAllLogs] = useState([])
   const [clockLog, setClockLog] = useState([])
-  const [screen, setScreen] = useState("kiosk")
+  const [screen, setScreen] = useState("kiosk") // 'kiosk' | 'kiosk-auth' | 'kiosk-action-hub' | 'portal-select' | 'portal-auth' | 'portal-dashboard' | 'manager-login' | 'manager-dashboard'
+  const [announcements, setAnnouncements] = useState([])
+  const [weather, setWeather] = useState({
+    code: 0,
+    text: "Sunny",
+    temp: 82,
+    wind: 5,
+    waterTemp: 74,
+    flag: "GREEN"
+  })
+  const [capturedPhoto, setCapturedPhoto] = useState(null)
+  
+  // Connection states
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [offlineCount, setOfflineCount] = useState(getOfflineQueueLength())
+
+  // Authentication selection states
   const [authEmp, setAuthEmp] = useState(null)
   const [portalEmp, setPortalEmp] = useState(null)
   
+  // Manager access states
   const [managerSession, setMgrSession] = useState(null)
   const [mgrProfile, setMgrProfile] = useState(null) 
   const [mgrLoginMode, setMgrLoginMode] = useState("select") 
-  
-  const [managerTab, setMgrTab] = useState("clock")
-  const [payEmp, setPayEmp] = useState(null)
-  
   const [showAddEmp, setShowAddEmp] = useState(false)
   const [editEmp, setEditEmp] = useState(null)
   
   const [now, setNow] = useState(new Date())
-  const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0])
-
-  // Timesheet Editor States
-  const [tsEmp, setTsEmp] = useState(null)
-  const [editLog, setEditLog] = useState(null)
-  const [logEditData, setLogEditData] = useState({ time: "", action: "" })
-
-  // Helper to convert UTC to Local for the datetime-local input
-  function getLocalDatetimeString(dateObj) {
-    const pad = (n) => n.toString().padStart(2, '0')
-    return `${dateObj.getFullYear()}-${pad(dateObj.getMonth()+1)}-${pad(dateObj.getDate())}T${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`
-  }
+  const [targetDate, setTargetDate] = useState(new Date().toISOString().split("T")[0])
 
   const activeWeekKey = getSundayKey(targetDate)
-  const availableRoles = ["Park Admin", "Site Manager", "Waterfront", "Concessions", "Activities", "Lifeguard", "Gate", "Maintenance", "Events"]
 
+  // Listen to network status changes
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      triggerOfflineSync()
+    }
+    const handleOffline = () => {
+      setIsOnline(false)
+    }
+    const handleQueueChange = () => {
+      setOfflineCount(getOfflineQueueLength())
+    }
+
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+    window.addEventListener("offline-queue-changed", handleQueueChange)
+
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+      window.removeEventListener("offline-queue-changed", handleQueueChange)
+    }
+  }, [])
+
+  // Background check/sync loop
+  const triggerOfflineSync = async () => {
+    if (navigator.onLine && getOfflineQueueLength() > 0) {
+      const res = await syncOfflinePunches(supabase)
+      if (res.success && res.count > 0) {
+        // Refresh data once sync finishes
+        await loadData()
+      }
+    }
+  }
+
+  // Set ticking clock
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(iv)
+  }, [])
+
+  // Fetch weather on mount and schedule periodic updates
+  useEffect(() => {
+    async function fetchWeather() {
+      try {
+        const res = await fetch(
+          "https://api.open-meteo.com/v1/forecast?latitude=40.6503&longitude=-85.0245&current=temperature_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph"
+        )
+        if (!res.ok) throw new Error("Weather API error")
+        const data = await res.json()
+        const current = data.current
+        const temp = Math.round(current.temperature_2m)
+        const wind = Math.round(current.wind_speed_10m)
+        const code = current.weather_code
+        
+        let text = "Sunny"
+        if (code === 0) text = "Sunny"
+        else if (code >= 1 && code <= 3) text = "Partly Cloudy"
+        else if (code === 45 || code === 48) text = "Foggy"
+        else if (code >= 51 && code <= 67) text = "Rainy"
+        else if (code >= 71 && code <= 77) text = "Snowy"
+        else if (code >= 80 && code <= 82) text = "Showers"
+        else if (code >= 95) text = "Thunderstorm"
+
+        const waterTemp = Math.max(55, Math.min(78, temp - 8))
+        
+        let flag = "GREEN"
+        if (wind > 18 || waterTemp < 60 || code >= 95) {
+          flag = "RED"
+        } else if (wind > 12 || waterTemp < 68 || (code >= 51 && code <= 82)) {
+          flag = "YELLOW"
+        }
+
+        setWeather({
+          code,
+          text,
+          temp,
+          wind,
+          waterTemp,
+          flag
+        })
+      } catch (err) {
+        console.error("Failed to fetch weather:", err)
+      }
+    }
+    
+    fetchWeather()
+    const iv = setInterval(fetchWeather, 600000) // 10 minutes
+    return () => clearInterval(iv)
+  }, [])
+
+  // Dynamic body background theme based on time of day
+  const currentHour = now.getHours()
+  useEffect(() => {
+    let bgClasses = []
+    if (currentHour >= 5 && currentHour < 8) {
+      bgClasses = ["bg-gradient-to-br", "from-[#1d1b32]", "via-[#2c223c]", "to-[#4c3531]", "min-h-screen"]
+    } else if (currentHour >= 8 && currentHour < 18) {
+      bgClasses = ["bg-[#0c1220]", "min-h-screen"]
+    } else if (currentHour >= 18 && currentHour < 20) {
+      bgClasses = ["bg-gradient-to-br", "from-[#13112c]", "via-[#2f1b33]", "to-[#4a1c24]", "min-h-screen"]
+    } else {
+      bgClasses = ["bg-gradient-to-b", "from-[#05070f]", "to-[#0a0f1d]", "min-h-screen"]
+    }
+    
+    document.body.className = ""
+    document.body.classList.add(...bgClasses)
+  }, [currentHour])
+
+  // Set recover password hooks
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "PASSWORD_RECOVERY") {
@@ -128,100 +251,197 @@ export default function PineLakeApp() {
         setScreen("kiosk")
       }
     })
-    return () => { authListener.subscription.unsubscribe() }
-  }, [])
-
-  useEffect(() => {
-    const iv = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(iv)
-  }, [])
-
-  useEffect(() => {
-    async function loadData() {
-      const { data: empData } = await supabase.from("employees").select("*").order("id")
-      if (empData) {
-        const mapped = empData.map(e => ({
-          id: e.id, name: e.name, role: e.role, baseRate: e.base_rate,
-          bonusRate: e.bonus_rate, pin: e.pin, authMethod: e.auth_method, avatar: e.avatar,
-          fedTaxRate: e.fed_tax_rate ?? 12, stateTaxRate: e.state_tax_rate ?? 5.5,
-          countyTaxRate: e.county_tax_rate ?? 0, ficaTaxRate: e.fica_tax_rate ?? 7.65
-        }))
-        setEmployees(mapped)
-        if (mapped.length > 0) setPayEmp(mapped[0])
-      }
-
-      const { data: logs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
-      if (logs) {
-        setAllLogs(logs)
-        const cState = {}
-        const rLogs = []
-        const seen = new Set()
-        logs.forEach(log => {
-          if (!seen.has(log.employee_id)) {
-            seen.add(log.employee_id)
-            if (log.action === "IN" || log.action === "BREAK_END") cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
-            else if (log.action === "BREAK_START") cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
-          }
-          if (rLogs.length < 50) {
-            const emp = empData?.find(e => e.id === log.employee_id)
-            if (emp) rLogs.push({ empId: emp.id, emp: emp.name, action: log.action, time: new Date(log.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) })
-          }
-        })
-        setClockedIn(cState)
-        setClockLog(rLogs)
-      }
-
-      const { data: schedData } = await supabase.from("schedules").select("*")
-      if (schedData) {
-        const mapped = {}
-        schedData.forEach(row => {
-          if (!mapped[row.week_key]) mapped[row.week_key] = {}
-          if (!mapped[row.week_key][row.day]) mapped[row.week_key][row.day] = {}
-          mapped[row.week_key][row.day][row.employee_id] = row.shift_time
-        })
-        setSchedules(mapped)
-      }
+    return () => {
+      authListener.subscription.unsubscribe()
     }
-    loadData()
   }, [])
 
-  useEffect(() => {
-    if (employees.length === 0) return
-    const channel = supabase.channel("live-clock").on("postgres_changes", { event: "INSERT", schema: "public", table: "clock_logs" }, (payload) => {
-      const log = payload.new
-      const emp = employees.find(e => e.id === log.employee_id)
-      if (!emp) return
-      setAllLogs(prev => [log, ...prev])
-      setClockedIn(prev => {
-        const next = { ...prev }
-        if (log.action === "IN" || log.action === "BREAK_END") next[emp.id] = { status: "IN", time: new Date(log.created_at).getTime() }
-        else if (log.action === "BREAK_START") next[emp.id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
-        else delete next[emp.id]
-        return next
-      })
-      const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString }, ...prev.slice(0, 49)])
-    }).subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [employees])
+  // Core Data Loading
+  async function loadData() {
+    let empData = []
+    let logs = []
+    let schedData = []
+    let announcementsData = []
 
-  function getElapsed(empId){
-    const rec = clockedIn[empId]
-    if(!rec) return 0
-    return Math.floor((Date.now()-rec.time)/1000)
+    try {
+      if (navigator.onLine || IS_MOCK_DATABASE) {
+        // Online fetch
+        const { data: fetchedEmp } = await supabase.from("employees").select("*").order("id")
+        empData = fetchedEmp || []
+        
+        const { data: fetchedLogs } = await supabase.from("clock_logs").select("*").order("created_at", { ascending: false })
+        logs = fetchedLogs || []
+        
+        const { data: fetchedSched } = await supabase.from("schedules").select("*")
+        schedData = fetchedSched || []
+
+        const { data: fetchedAnnouncements } = await supabase.from("announcements").select("*").order("created_at", { ascending: false })
+        announcementsData = fetchedAnnouncements || []
+        
+        // Cache data for offline launch
+        cacheEmployees(empData)
+        
+        // Structure schedules to cache
+        const schedMap = {}
+        schedData.forEach(row => {
+          if (!schedMap[row.week_key]) schedMap[row.week_key] = {}
+          if (!schedMap[row.week_key][row.day]) schedMap[row.week_key][row.day] = {}
+          schedMap[row.week_key][row.day][row.employee_id] = row.shift_time
+        })
+        cacheSchedules(schedMap)
+      } else {
+        // Offline load from cache
+        empData = getCachedEmployees()
+        const cachedSchedules = getCachedSchedules()
+        
+        // Load offline clock logs from LocalStorage
+        logs = JSON.parse(localStorage.getItem("pinelake_clock_logs") || "[]")
+        
+        // Load announcements from LocalStorage
+        announcementsData = JSON.parse(localStorage.getItem("pinelake_announcements") || "[]")
+        
+        // Map cached schedules directly
+        setSchedules(cachedSchedules)
+      }
+    } catch (e) {
+      console.error("Failed to fetch database, loading offline cache...", e)
+      empData = getCachedEmployees()
+      logs = JSON.parse(localStorage.getItem("pinelake_clock_logs") || "[]")
+      announcementsData = JSON.parse(localStorage.getItem("pinelake_announcements") || "[]")
+      setSchedules(getCachedSchedules())
+    }
+
+    if (empData) {
+      const mapped = empData.map(e => ({
+        id: e.id,
+        name: e.name,
+        role: e.role,
+        baseRate: e.base_rate,
+        bonusRate: e.bonus_rate || 0,
+        pin: e.pin,
+        authMethod: e.auth_method,
+        avatar: e.avatar,
+        fedTaxRate: e.fed_tax_rate ?? 12,
+        stateTaxRate: e.state_tax_rate ?? 5.5,
+        countyTaxRate: e.county_tax_rate ?? 0,
+        ficaTaxRate: e.fica_tax_rate ?? 7.65
+      }))
+      setEmployees(mapped)
+    }
+
+    if (logs) {
+      setAllLogs(logs)
+      const cState = {}
+      const rLogs = []
+      const seen = new Set()
+      
+      logs.forEach(log => {
+        if (!seen.has(log.employee_id)) {
+          seen.add(log.employee_id)
+          if (log.action === "IN" || log.action === "BREAK_END") {
+            cState[log.employee_id] = { status: "IN", time: new Date(log.created_at).getTime() }
+          } else if (log.action === "BREAK_START") {
+            cState[log.employee_id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
+          }
+        }
+        
+        if (rLogs.length < 50) {
+          const emp = empData?.find(e => e.id === log.employee_id)
+          if (emp) {
+            rLogs.push({
+              empId: emp.id,
+              emp: emp.name,
+              action: log.action,
+              time: new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              photo_base64: log.photo_base64
+            })
+          }
+        }
+      })
+      setClockedIn(cState)
+      setClockLog(rLogs)
+    }
+
+    // If schedule mapping was fetched online, map it
+    if (schedData.length > 0) {
+      const mapped = {}
+      schedData.forEach(row => {
+        if (!mapped[row.week_key]) mapped[row.week_key] = {}
+        if (!mapped[row.week_key][row.day]) mapped[row.week_key][row.day] = {}
+        mapped[row.week_key][row.day][row.employee_id] = row.shift_time
+      })
+      setSchedules(mapped)
+    }
+
+    if (announcementsData) {
+      setAnnouncements(announcementsData)
+    }
   }
 
+  // Initial Boot Load
+  useEffect(() => {
+    loadData().then(() => {
+      triggerOfflineSync()
+    })
+  }, [])
+
+  // Real-time updates subscription hook
+  useEffect(() => {
+    if (employees.length === 0) return
+    
+    const channel = supabase.channel("live-clock").on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "clock_logs" },
+      (payload) => {
+        const log = payload.new
+        const emp = employees.find(e => e.id === log.employee_id)
+        if (!emp) return
+        
+        setAllLogs(prev => [log, ...prev])
+        setClockedIn(prev => {
+          const next = { ...prev }
+          if (log.action === "IN" || log.action === "BREAK_END") {
+            next[emp.id] = { status: "IN", time: new Date(log.created_at).getTime() }
+          } else if (log.action === "BREAK_START") {
+            next[emp.id] = { status: "BREAK", time: new Date(log.created_at).getTime() }
+          } else {
+            delete next[emp.id]
+          }
+          return next
+        })
+        const timeString = new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: log.action, time: timeString, photo_base64: log.photo_base64 }, ...prev.slice(0, 49)])
+      }
+    ).subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [employees])
+
+  // Timer Tick Helper
+  function getElapsed(empId) {
+    const rec = clockedIn[empId]
+    if (!rec) return 0
+    return Math.floor((Date.now() - rec.time) / 1000)
+  }
+
+  // Paycheck calculator helper
   function getTimesheetSummary() {
     const summary = {}
     employees.forEach(emp => {
-      const empLogs = allLogs.filter(l => l.employee_id === emp.id).sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+      const empLogs = allLogs
+        .filter(l => l.employee_id === emp.id)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        
       let weekdayMs = 0
       let weekendMs = 0
       let lastIn = null
       
       empLogs.forEach(log => {
-        if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) lastIn = new Date(log.created_at).getTime()
-        else if ((log.action === "OUT" || log.action === "BREAK_START" || log.action === "AUTO-OUT") && lastIn) {
+        if ((log.action === "IN" || log.action === "BREAK_END") && !lastIn) {
+          lastIn = new Date(log.created_at).getTime()
+        } else if ((log.action === "OUT" || log.action === "BREAK_START" || log.action === "AUTO-OUT") && lastIn) {
           const shiftStart = new Date(lastIn)
           const dayOfWeek = shiftStart.getDay()
           const duration = new Date(log.created_at).getTime() - lastIn
@@ -230,6 +450,7 @@ export default function PineLakeApp() {
           lastIn = null
         }
       })
+      
       if (lastIn) {
         const dayOfWeek = new Date(lastIn).getDay()
         const duration = Date.now() - lastIn
@@ -256,16 +477,26 @@ export default function PineLakeApp() {
       const liveMs = clockedIn[emp.id] ? (Date.now() - clockedIn[emp.id].time) : 0
 
       summary[emp.id] = {
-        hours: (regH + otH).toFixed(2), regH: regH.toFixed(2), otH: otH.toFixed(2), liveH: (liveMs / 3600000).toFixed(2),
-        gross, employerTax, totalCost: gross + employerTax, 
-        empTaxes: totalEmpTaxes, netPay: gross - totalEmpTaxes,
-        fed, state, county, fica
+        hours: (regH + otH).toFixed(2),
+        regH: regH.toFixed(2),
+        otH: otH.toFixed(2),
+        liveH: (liveMs / 3600000).toFixed(2),
+        gross,
+        employerTax,
+        totalCost: gross + employerTax, 
+        empTaxes: totalEmpTaxes,
+        netPay: gross - totalEmpTaxes,
+        fed,
+        state,
+        county,
+        fica
       }
     })
     return summary
   }
   const timesheets = getTimesheetSummary()
 
+  // Export CSV Action
   async function handleExportCSV() {
     const { data } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
     if (!data || data.length === 0) return alert("No history found.")
@@ -276,38 +507,71 @@ export default function PineLakeApp() {
     })
     const link = document.createElement("a")
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
-    link.download = `Payroll_${new Date().toISOString().split('T')[0]}.csv`
+    link.download = `Payroll_${new Date().toISOString().split("T")[0]}.csv`
     link.click()
   }
 
+  // Export Excel Action
   async function handleExportXLSX() {
     const { data } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
     if (!data || data.length === 0) return alert("No history found.")
     const sheet = data.map(r => {
       const e = employees.find(emp => emp.id === r.employee_id)
-      return { Employee: e?.name || r.employee_id, Date: r.week_start_date, Hours: r.total_hours, Rate: r.pay_rate_at_time, Gross: r.gross_pay, Fed: r.fed_tax, State: r.state_tax, County: r.county_tax, FICA: r.fica_tax, "Er Tax": r.employer_tax, "Total Cost": r.total_cost, Net: r.net_pay }
+      return {
+        Employee: e?.name || r.employee_id,
+        Date: r.week_start_date,
+        Hours: r.total_hours,
+        Rate: r.pay_rate_at_time,
+        Gross: r.gross_pay,
+        Fed: r.fed_tax,
+        State: r.state_tax,
+        County: r.county_tax,
+        FICA: r.fica_tax,
+        "Er Tax": r.employer_tax,
+        "Total Cost": r.total_cost,
+        Net: r.net_pay
+      }
     })
     const ws = XLSX.utils.json_to_sheet(sheet)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Payroll")
-    XLSX.writeFile(wb, `Payroll_${new Date().toISOString().split('T')[0]}.xlsx`)
+    XLSX.writeFile(wb, `Payroll_${new Date().toISOString().split("T")[0]}.xlsx`)
   }
 
+  // Finalize Payroll Action
   async function handleFinalizePayroll() {
-    if (Object.values(clockedIn).some(s => s.status === "IN" || s.status === "BREAK")) return alert("Employees must clock out first.")
+    if (Object.values(clockedIn).some(s => s.status === "IN" || s.status === "BREAK")) {
+      return alert("Employees must clock out first before finalizing payroll.")
+    }
     const records = employees.map(emp => {
       const s = timesheets[emp.id]
       return {
-        employee_id: emp.id, week_start_date: activeWeekKey, total_hours: parseFloat(s.hours),
-        pay_rate_at_time: emp.baseRate, gross_pay: s.gross, fed_tax: s.fed, state_tax: s.state,
-        county_tax: s.county, fica_tax: s.fica, employer_tax: s.employerTax, total_cost: s.totalCost, net_pay: s.netPay
+        employee_id: emp.id,
+        week_start_date: activeWeekKey,
+        total_hours: parseFloat(s.hours),
+        pay_rate_at_time: emp.baseRate,
+        gross_pay: s.gross,
+        fed_tax: s.fed,
+        state_tax: s.state,
+        county_tax: s.county,
+        fica_tax: s.fica,
+        employer_tax: s.employerTax,
+        total_cost: s.totalCost,
+        net_pay: s.netPay
       }
     }).filter(r => r.total_hours > 0)
-    if(records.length === 0) return alert("No hours logged to save.")
-    await supabase.from("payroll_history").insert(records)
-    alert("Payroll finalized.")
+    
+    if (records.length === 0) return alert("No hours logged to save.")
+    
+    const { error } = await supabase.from("payroll_history").insert(records)
+    if (error) {
+      alert("Failed to finalize payroll: " + error.message)
+    } else {
+      alert("Payroll finalized and stored successfully.")
+    }
   }
 
+  // Save Employee Details
   async function handleSaveEmployee(empData) {
     const dbPayload = {
       name: empData.name,
@@ -315,8 +579,8 @@ export default function PineLakeApp() {
       base_rate: parseFloat(empData.baseRate || 0),
       bonus_rate: parseFloat(empData.bonusRate || 0),
       pin: empData.pin,
-      auth_method: empData.authMethod || 'pin',
-      avatar: empData.avatar || empData.name.split(' ').map(n => n[0]).join('').toUpperCase(),
+      auth_method: empData.authMethod || "pin",
+      avatar: empData.avatar || empData.name.split(" ").map(n => n[0]).join("").toUpperCase(),
       fed_tax_rate: parseFloat(empData.fedTaxRate || 12),
       state_tax_rate: parseFloat(empData.stateTaxRate || 5.5),
       county_tax_rate: parseFloat(empData.countyTaxRate || 0),
@@ -341,798 +605,541 @@ export default function PineLakeApp() {
     }
   }
 
-  async function doClockAction(emp, type) {
-    const isOfficialKiosk = localStorage.getItem("official_kiosk_token")
-    if (!isOfficialKiosk && (type === "IN" || type === "OUT" || type === "BREAK_START" || type === "BREAK_END")) {
-      alert("SECURITY ERROR: You can only clock in or out from the designated park tablet.")
+  // Core Clock Action Trigger (Shared by Kiosk & Portal)
+  async function doClockAction(emp, type, bypassKioskCheck = false, coords = null) {
+    const isOfficialKiosk = !!localStorage.getItem("official_kiosk_token")
+    if (!bypassKioskCheck && !isOfficialKiosk && (type === "IN" || type === "OUT" || type === "BREAK_START" || type === "BREAK_END")) {
+      alert("SECURITY ERROR: You can only clock in or out from the designated park tablet kiosk.")
+      setCapturedPhoto(null)
       setAuthEmp(null)
       setScreen("kiosk")
       return
     }
 
-    const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
-    if (authError) return alert("Security Error: Identity could not be verified.")
-    
-    await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: type }])
-    await supabase.auth.signOut()
-    
+    const isOnlineMode = navigator.onLine && !IS_MOCK_DATABASE
+    const photo = capturedPhoto || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23111827'/><circle cx='50' cy='45' r='16' fill='%2300b4d8'/><path d='M20,90 C20,74 80,74 80,90' fill='%2300b4d8'/><text x='50' y='92' font-family='monospace' font-size='8' fill='%239ca3af' text-anchor='middle'>PORTAL GPS</text></svg>`
+
+    const finalCoords = coords || { latitude: 40.650318, longitude: -85.024517, accuracy: 5 }
+    const isSuspicious = finalCoords && (finalCoords.accuracy === 0 || finalCoords.accuracy > 150)
+    const timestamp = new Date().toISOString()
+    const signature = generatePunchSignature(emp.id, type, timestamp, photo, finalCoords)
+
+    // OFFLINE QUEUE TRIGGER
+    if (!isOnlineMode) {
+      const offlineLogRec = queueOfflinePunch(emp.id, type)
+      
+      // Update state immediately for local representation
+      setClockedIn(prev => {
+        const next = { ...prev }
+        if (type === "IN" || type === "BREAK_END") {
+          next[emp.id] = { status: "IN", time: Date.now() }
+        } else if (type === "BREAK_START") {
+          next[emp.id] = { status: "BREAK", time: Date.now() }
+        } else {
+          delete next[emp.id]
+        }
+        return next
+      })
+
+      // Add to clock activity log
+      const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      setClockLog(prev => [{ empId: emp.id, emp: emp.name, action: type, time: timeStr, photo_base64: photo, signature: signature, suspicious_gps: isSuspicious }, ...prev.slice(0, 49)])
+
+      // Save offline punch logs in LocalStorage clock_logs array for offline roster display
+      const offlineLogs = JSON.parse(localStorage.getItem("pinelake_clock_logs") || "[]")
+      offlineLogs.unshift({
+        id: offlineLogRec.id,
+        employee_id: emp.id,
+        action: type,
+        created_at: offlineLogRec.created_at,
+        photo_base64: photo,
+        signature: signature,
+        suspicious_gps: isSuspicious
+      })
+      localStorage.setItem("pinelake_clock_logs", JSON.stringify(offlineLogs))
+
+      alert(`Offline Punch saved successfully (${type})! It will synchronize once internet is restored.`)
+      setCapturedPhoto(null)
+      setAuthEmp(null)
+      setScreen("kiosk")
+      return
+    }
+
+    // ONLINE PUNCH TRIGGER
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: `emp_${emp.id}@pinelake.internal`,
+        password: emp.pin
+      })
+      if (authError) {
+        setCapturedPhoto(null)
+        return alert("Security Error: Identity verification failed.")
+      }
+      
+      const { error: insertError } = await supabase.from("clock_logs").insert([{
+        employee_id: emp.id,
+        action: type,
+        photo_base64: photo,
+        signature: signature,
+        suspicious_gps: isSuspicious
+      }])
+      if (insertError) throw insertError
+
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.error(err)
+      alert("Punch failed: " + err.message)
+    }
+
+    setCapturedPhoto(null)
     setAuthEmp(null)
     setScreen("kiosk")
   }
 
-  async function handleGPSClockAction(emp, type) {
-    if (!navigator.geolocation) {
-      return alert("Error: Your device does not support GPS location.");
+  // -------------------------------------------------------------
+  // -------------------------------------------------------------
+  // SCREEN ROUTER RENDERING
+  // -------------------------------------------------------------
+
+  function renderScreen() {
+    // View: Main Time Clock Roster Station
+    if (screen === "kiosk") {
+      return (
+        <KioskView
+          employees={employees}
+          clockedIn={clockedIn}
+          getElapsed={getElapsed}
+          now={now}
+          setAuthEmp={setAuthEmp}
+          setScreen={setScreen}
+          setMgrLoginMode={setMgrLoginMode}
+          offlineCount={offlineCount}
+          isOnline={isOnline}
+          weather={weather}
+          announcements={announcements}
+        />
+      )
     }
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const distance = getDistanceFromLatLonInMeters(
-          PARK_LAT, PARK_LON, 
-          position.coords.latitude, position.coords.longitude
-        );
-
-        if (distance > MAX_DISTANCE_METERS) {
-          return alert(`SECURITY ERROR: You are too far from the park. (Distance: ${Math.round(distance)}m)`);
-        }
-
-        const { error: authError } = await supabase.auth.signInWithPassword({ email: `emp_${emp.id}@pinelake.internal`, password: emp.pin })
-        if (authError) return alert("Security Error: Identity could not be verified.")
-        
-        await supabase.from("clock_logs").insert([{ employee_id: emp.id, action: type }])
-        await supabase.auth.signOut()
-        alert("Punch successful!");
-      },
-      (error) => {
-        alert("Error getting location. Please ensure location services are turned on for this browser.");
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  }
-
-  const activeCount = Object.values(clockedIn).filter(s => s.status === "IN").length
-  
-  const kioskEmployees = employees
-  const managerEmployees = employees.filter(e => ["Manager", "Site Manager", "Park Admin"].includes(e.role))
-
-if(screen === "kiosk") {
-    const isOfficialKiosk = localStorage.getItem("official_kiosk_token")
-    return (
-      <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] antialiased selection:bg-[#7ec8e3] selection:text-[#0d1117]">
-        <div className="max-w-[700px] mx-auto pb-10 px-4 sm:px-6">
-          <div className="pt-8 pb-6 mb-4 border-b border-[#1a2535] flex flex-col items-center text-center">
-            <div className="text-[10px] text-[#7ec8e3] uppercase tracking-[0.2em] font-bold mb-2">Pine Lake Recreation</div>
-            <h1 className="text-[24px] font-bold text-[#e8f4f8] leading-tight mb-2">Time Clock</h1>
-            <div className="font-mono text-[16px] font-semibold text-[#a0b8d0]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit", second:"2-digit"})}</div>
-          </div>
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <button onClick={()=>setScreen("portal-select")} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#7ec8e3] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
-              <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">👤</span>
-              <span className="text-[12px] font-bold text-[#e8f4f8]">Employee Portal</span>
-              <span className="text-[9px] text-[#4a6a8a] mt-1">View schedules & pay</span>
-            </button>
-            <button onClick={()=>{setMgrLoginMode("select"); setScreen("manager-login");}} className="bg-[#131b27] border border-[#1e2a38] hover:border-[#fca311] p-4 rounded-xl flex flex-col items-center justify-center transition-all group">
-              <span className="text-[20px] mb-2 group-hover:scale-110 transition-transform">🔐</span>
-              <span className="text-[12px] font-bold text-[#e8f4f8]">Manager Access</span>
-              <span className="text-[9px] text-[#4a6a8a] mt-1">System administration</span>
-            </button>
-          </div>
-
-          {isOfficialKiosk ? (
-            <>
-              <div className="text-[10px] text-[#4a6a8a] uppercase tracking-widest mb-3 font-bold border-b border-[#1a2535] pb-2">
-                Staff Roster <span className="text-[#06d6a0] ml-1">({activeCount} on clock)</span>
-              </div>
-              <div className="flex flex-col gap-3">
-                {kioskEmployees.map(emp => {
-                  const s = clockedIn[emp.id]
-                  const isW = s?.status === "IN"
-                  const isB = s?.status === "BREAK"
-                  const elapsed = getElapsed(emp.id)
-                  return (
-                    <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("kiosk-auth")}} className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left group hover:scale-[1.01] ${isW ? "bg-[#0d1f14] border-[#06d6a0] shadow-[0_0_15px_rgba(6,214,160,0.1)]" : isB ? "bg-[#1f1a0d] border-[#fca311]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#7ec8e3]"}`}>
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
-                        <div>
-                          <div className="text-[15px] font-bold text-[#e8f4f8]">{emp.name}</div>
-                          <div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {isW && <div className="text-[#06d6a0] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
-                        {isB && <div className="text-[#fca311] font-mono font-bold text-[16px]">{fmtElapsed(elapsed)}</div>}
-                        {!isW && !isB && <div className="text-[#4a6a8a] text-[11px] font-bold uppercase tracking-widest group-hover:text-[#7ec8e3] transition-colors">Select ➔</div>}
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="mt-8 bg-[#131b27] border border-[#2a4060] rounded-xl p-8 text-center shadow-lg">
-              <div className="text-[32px] mb-4">📱</div>
-              <div className="text-[16px] font-bold text-[#e8f4f8] mb-2">Using your personal phone?</div>
-              <div className="text-[12px] text-[#a0b0c0] mb-6 max-w-[280px] mx-auto leading-relaxed">The main roster is locked to the park tablet. You must use the portal to verify your GPS location.</div>
-              <button onClick={()=>setScreen("portal-select")} className="bg-[#7ec8e3] text-[#0d1117] font-bold text-[13px] px-6 py-3 rounded-lg uppercase tracking-wide hover:opacity-90 transition-opacity w-full sm:w-auto">Open Employee Portal</button>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if(screen === "kiosk-auth" && authEmp) return (
-    <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-      <div className="w-full max-w-[320px]">
-        <div className="text-center mb-6"><div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[20px] shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[20px] font-bold">{authEmp.name}</div></div>
-        {authEmp.authMethod === "face" ? <FaceScanUI onSuccess={()=>setScreen("kiosk-action-hub")} onCancel={()=>setScreen("kiosk")}/> : 
-          <PinPad correctPin={authEmp.pin} label="ENTER PIN" onSuccess={()=>setScreen("kiosk-action-hub")} onCancel={()=>setScreen("kiosk")}/>}
-      </div>
-    </div>
-  )
-
-  if(screen === "kiosk-action-hub" && authEmp) {
-    const s = clockedIn[authEmp.id]
-    const isW = s?.status === "IN"
-    const isB = s?.status === "BREAK"
-    const isO = !s
-    const elapsed = getElapsed(authEmp.id)
-    return (
-      <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-        <div className="w-full max-w-[400px] bg-[#131b27] border border-[#1e2a38] rounded-2xl p-6 shadow-2xl text-center">
-           <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-xl shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div>
-           <h2 className="text-2xl font-bold mb-1">Hello, {authEmp.name.split(" ")[0]}</h2>
-           <div className="text-[#4a6a8a] text-[11px] mb-6 uppercase tracking-widest font-mono">Select an Action</div>
-           {isW && <div className="text-[36px] font-mono font-bold text-[#06d6a0] mb-6">{fmtElapsed(elapsed)}</div>}
-           {isB && <div className="text-[36px] font-mono font-bold text-[#fca311] mb-6">{fmtElapsed(elapsed)}</div>}
-           <div className="flex flex-col gap-4">
-              {isO && <button onClick={()=>doClockAction(authEmp, "IN")} className="bg-[#06d6a0] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">Clock In</button>}
-              {isW && (
-                 <>
-                   <button onClick={()=>doClockAction(authEmp, "BREAK_START")} className="bg-[#1e2a38] text-[#e8f4f8] hover:bg-[#2a4060] border border-[#2a4060] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95">Start Break</button>
-                   <button onClick={()=>doClockAction(authEmp, "OUT")} className="bg-[#ef476f] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">Clock Out</button>
-                 </>
-              )}
-              {isB && <button onClick={()=>doClockAction(authEmp, "BREAK_END")} className="bg-[#fca311] text-[#0d1117] w-full py-4 rounded-xl text-lg font-bold uppercase transition-transform active:scale-95 hover:opacity-90">End Break</button>}
-           </div>
-           <button onClick={()=>setScreen("kiosk")} className="mt-8 text-[#4a6a8a] text-[12px] font-bold uppercase tracking-widest hover:text-[#e8f4f8] transition-colors">Cancel</button>
-        </div>
-      </div>
-    )
-  }
-
-  if(screen === "portal-select") return (
-    <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
-      <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center"><h1 className="text-[18px] font-bold">Select Profile</h1><button onClick={()=>setScreen("kiosk")} className="text-[10px] text-[#4a6a8a] font-mono uppercase tracking-widest hover:text-[#e8e8e8] transition-colors">Back</button></div>
-      <div className="flex flex-col gap-3">
-        {kioskEmployees.map(emp=>(
-          <button key={emp.id} onClick={()=>{setAuthEmp(emp); setScreen("portal-auth")}} className="flex items-center gap-4 p-3.5 rounded-xl border border-[#1e2a38] bg-[#131b27] hover:border-[#2a4060] text-left w-full transition-all">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[12px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
-            <div><div className="font-bold text-[13px] text-[#e8f4f8]">{emp.name}</div><div className="text-[10px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div></div>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-
-  if(screen === "portal-auth") return (
-    <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-      <div className="w-full max-w-[300px]">
-        <div className="text-center mb-6"><div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[16px] shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[16px] font-bold">{authEmp.name}</div></div>
-        <PinPad correctPin={authEmp.pin} label="PIN FOR PORTAL" onSuccess={()=>{setPortalEmp(authEmp); setScreen("portal-dashboard")}} onCancel={()=>setScreen("portal-select")}/>
-      </div>
-    </div>
-  )
-
-  if(screen === "portal-dashboard" && portalEmp) {
-    const s = timesheets[portalEmp.id] || { hours: "0.00", gross: 0, netPay: 0 }
-    const wk = schedules[activeWeekKey] || {}
-    const currentStatus = clockedIn[portalEmp.id];
-    const isW = currentStatus?.status === "IN";
-    const isB = currentStatus?.status === "BREAK";
-    const isO = !currentStatus;
-    const elapsed = getElapsed(portalEmp.id);
-
-    return (
-      <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[600px] mx-auto pb-10 px-4 sm:px-6">
-        <div className="pt-6 border-b border-[#1a2535] mb-6 pb-4 flex justify-between items-center">
-          <div><div className="text-[9px] text-[#4a6a8a] font-mono uppercase tracking-widest mb-1">Employee Portal</div><h1 className="text-[18px] font-bold">Hello, {portalEmp.name.split(" ")[0]}</h1></div>
-          <button onClick={()=>{setPortalEmp(null); setScreen("kiosk")}} className="bg-[#1e2a38] text-[#e8e8e8] py-1.5 px-4 rounded-md text-[10px] hover:bg-[#ef476f] transition-colors">Log Out</button>
-        </div>
-
-        <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 mb-5 shadow-lg text-center">
-          <div className="text-[12px] font-bold mb-4 text-[#e8f4f8]">Time Clock</div>
-           {isW && <div className="text-[28px] font-mono font-bold text-[#06d6a0] mb-4">{fmtElapsed(elapsed)}</div>}
-           {isB && <div className="text-[28px] font-mono font-bold text-[#fca311] mb-4">{fmtElapsed(elapsed)}</div>}
-           <div className="flex flex-col gap-3">
-              {isO && <button onClick={()=>handleGPSClockAction(portalEmp, "IN")} className="bg-[#06d6a0] text-[#0d1117] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">Clock In</button>}
-              {isW && (
-                 <>
-                   <button onClick={()=>handleGPSClockAction(portalEmp, "BREAK_START")} className="bg-[#1e2a38] text-[#e8f4f8] border border-[#2a4060] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">Start Break</button>
-                   <button onClick={()=>handleGPSClockAction(portalEmp, "OUT")} className="bg-[#ef476f] text-[#0d1117] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">Clock Out</button>
-                 </>
-              )}
-              {isB && <button onClick={()=>handleGPSClockAction(portalEmp, "BREAK_END")} className="bg-[#fca311] text-[#0d1117] w-full py-3 rounded-xl text-[14px] font-bold uppercase transition-transform active:scale-95">End Break</button>}
-           </div>
-           <div className="text-[9px] text-[#4a6a8a] mt-4 font-mono">Location verified via GPS</div>
-        </div>
-
-        <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 mb-5 shadow-lg">
-          <div className="flex justify-between items-end mb-4 border-b border-[#1a2535] pb-4">
-            <div><div className="text-[26px] font-mono font-bold text-[#06d6a0] leading-none">{s.hours}</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 uppercase tracking-widest">Total Hours</div></div>
-            <div className="text-right"><div className="text-[18px] font-mono font-bold text-[#e8f4f8] leading-none">{fmtMoney(s.gross)}</div><div className="text-[9px] text-[#4a6a8a] mt-1.5 uppercase tracking-widest">Est. Gross</div></div>
-          </div>
-          <div className="flex justify-between items-center bg-[#0d1117] p-3 rounded-lg border border-[#1e2a38]">
-             <div className="text-[9px] text-[#fca311] uppercase font-mono tracking-widest">Net Take-Home</div>
-             <div className="text-[16px] font-mono font-bold text-[#fca311]">{fmtMoney(s.netPay)}</div>
-          </div>
-        </div>
-        <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-5 shadow-lg">
-          <div className="text-[12px] font-bold mb-4 border-b border-[#1a2535] pb-2 text-[#e8f4f8]">My Schedule</div>
-          {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => (
-            <div key={day} className="flex justify-between py-2 border-b border-[#1a2535] last:border-0">
-              <div className="text-[11px] text-[#a0b0c0]">{day}</div>
-              <div className="text-[10px] text-right font-mono whitespace-pre-wrap">{formatShiftDisplay(wk[day]?.[portalEmp.id] || "OFF")}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if(screen === "manager-login") {
-    if (mgrLoginMode === "select") {
+    // View: Kiosk Verification (PINPad or Face Scan)
+    if (screen === "kiosk-auth" && authEmp) {
       return (
-        <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] flex flex-col items-center justify-center p-6">
-           <div className="w-full max-w-[360px]">
+        <div className="bg-transparent min-h-screen flex items-center justify-center p-6 text-[#f3f4f6]">
+          <div className="w-full max-w-[320px]">
+            <div className="text-center mb-6">
+              <div
+                className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] font-mono text-lg shadow-md"
+                style={{ backgroundColor: ROLE_COLORS[authEmp.role] || "#7ec8e3" }}
+              >
+                {authEmp.avatar}
+              </div>
+              <div className="text-lg font-black text-white font-heading">{authEmp.name}</div>
+            </div>
+            {authEmp.authMethod === "face" ? (
+              <FaceScanUI
+                onSuccess={(img) => {
+                  setCapturedPhoto(img)
+                  setScreen("kiosk-action-hub")
+                }}
+                onCancel={() => {
+                  setCapturedPhoto(null)
+                  setScreen("kiosk")
+                }}
+              />
+            ) : (
+              <PinPad
+                correctPin={authEmp.pin}
+                label="ENTER KIOSK PIN"
+                onSuccess={() => setScreen("kiosk-action-hub")}
+                onCancel={() => setScreen("kiosk")}
+              />
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    // View: Kiosk Action Hub (Clock-in options)
+    if (screen === "kiosk-action-hub" && authEmp) {
+      const s = clockedIn[authEmp.id]
+      const isW = s?.status === "IN"
+      const isB = s?.status === "BREAK"
+      const isO = !s
+      const elapsed = getElapsed(authEmp.id)
+      return (
+        <div className="bg-transparent min-h-screen flex items-center justify-center p-6 text-[#f3f4f6]">
+          <div className="w-full max-w-[380px] bg-[#111827]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl text-center">
+            <div
+              className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] font-mono text-lg shadow-md"
+              style={{ backgroundColor: ROLE_COLORS[authEmp.role] || "#7ec8e3" }}
+            >
+              {authEmp.avatar}
+            </div>
+            <h2 className="text-xl font-black text-white font-heading mb-1">Hello, {authEmp.name.split(" ")[0]}</h2>
+            <div className="text-gray-500 text-[10px] mb-6 uppercase tracking-widest font-mono">Select Action</div>
+            
+            {isW && <div className="text-4xl font-mono font-black text-[#06d6a0] mb-6">{fmtElapsed(elapsed)}</div>}
+            {isB && <div className="text-4xl font-mono font-black text-[#fca311] mb-6">{fmtElapsed(elapsed)}</div>}
+            
+            <div className="flex flex-col gap-4">
+              {isO && (
+                <button
+                  onClick={() => doClockAction(authEmp, "IN")}
+                  className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  Clock In
+                </button>
+              )}
+              {isW && (
+                <>
+                  <button
+                    onClick={() => doClockAction(authEmp, "BREAK_START")}
+                    className="bg-slate-900 border border-slate-800 text-gray-200 hover:bg-slate-800 w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer font-heading"
+                  >
+                    Start Break
+                  </button>
+                  <button
+                    onClick={() => doClockAction(authEmp, "OUT")}
+                    className="bg-[#ef476f] text-[#070a13] hover:bg-[#d43d5e] w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer font-heading"
+                  >
+                    Clock Out
+                  </button>
+                </>
+              )}
+              {isB && (
+                <button
+                  onClick={() => doClockAction(authEmp, "BREAK_END")}
+                  className="bg-[#fca311] text-[#070a13] hover:bg-[#e0910e] w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  End Break
+                </button>
+              )}
+            </div>
+            
+            <button
+              onClick={() => setScreen("kiosk")}
+              className="mt-6 text-gray-500 hover:text-white text-[10px] font-mono tracking-widest uppercase py-1.5 px-4 rounded border border-transparent hover:border-slate-800 cursor-pointer transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    // View: Portal Employee Selection
+    if (screen === "portal-select") {
+      return (
+        <div className="bg-transparent min-h-screen text-[#f3f4f6] max-w-lg mx-auto px-4 py-8 font-sans">
+          <div className="flex justify-between items-center border-b border-white/5 pb-4 mb-6">
+            <h1 className="text-lg font-black text-white font-heading">Select Profile</h1>
+            <button
+              onClick={() => setScreen("kiosk")}
+              className="text-[10px] font-mono text-gray-400 uppercase tracking-widest hover:text-white transition-colors cursor-pointer"
+            >
+              Back
+            </button>
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            {employees.map(emp => (
+              <button
+                key={emp.id}
+                onClick={() => {
+                  setAuthEmp(emp)
+                  setScreen("portal-auth")
+                }}
+                className="flex items-center gap-4 p-3.5 rounded-2xl border border-white/5 bg-[#111827]/40 hover:border-[#7ec8e3]/30 text-left w-full transition-all duration-200 cursor-pointer"
+              >
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] font-mono text-xs shadow-md"
+                  style={{ backgroundColor: ROLE_COLORS[emp.role] || "#7ec8e3" }}
+                >
+                  {emp.avatar}
+                </div>
+                <div>
+                  <div className="text-sm font-black text-white font-heading">{emp.name}</div>
+                  <div className="text-[10px] font-semibold mt-0.5" style={{ color: ROLE_COLORS[emp.role] || "#7ec8e3" }}>
+                    {emp.role}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    // View: Portal Login Verification (PIN code entry)
+    if (screen === "portal-auth" && authEmp) {
+      return (
+        <div className="bg-transparent min-h-screen flex items-center justify-center p-6 text-[#f3f4f6]">
+          <div className="w-full max-w-[320px]">
+            <div className="text-center mb-6">
+              <div
+                className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] font-mono text-sm shadow-md"
+                style={{ backgroundColor: ROLE_COLORS[authEmp.role] || "#7ec8e3" }}
+              >
+                {authEmp.avatar}
+              </div>
+              <div className="text-base font-black text-white font-heading">{authEmp.name}</div>
+            </div>
+            <PinPad
+              correctPin={authEmp.pin}
+              label="ENTER PORTAL PIN"
+              onSuccess={() => {
+                setPortalEmp(authEmp)
+                setScreen("portal-dashboard")
+              }}
+              onCancel={() => setScreen("portal-select")}
+            />
+          </div>
+        </div>
+      )
+    }
+
+    // View: Portal Personal Dashboard (GPS verification & hours statement)
+    if (screen === "portal-dashboard" && portalEmp) {
+      return (
+        <PortalView
+          portalEmp={portalEmp}
+          setPortalEmp={setPortalEmp}
+          setScreen={setScreen}
+          clockedIn={clockedIn}
+          getElapsed={getElapsed}
+          activeWeekKey={activeWeekKey}
+          schedules={schedules}
+          timesheets={timesheets}
+          formatShiftDisplay={formatShiftDisplay}
+          onClockAction={(actionType, coords) => doClockAction(portalEmp, actionType, true, coords)}
+          announcements={announcements}
+        />
+      )
+    }
+
+    // View: Manager Login Form
+    if (screen === "manager-login") {
+      if (mgrLoginMode === "select") {
+        const managerEmployees = employees.filter(e => ["Manager", "Site Manager", "Park Admin"].includes(e.role))
+        return (
+          <div className="bg-transparent min-h-screen text-[#f3f4f6] flex flex-col items-center justify-center p-6">
+            <div className="w-full max-w-[340px]">
               <div className="text-center mb-6">
-                <div className="text-[20px] font-bold text-[#e8f4f8]">Manager Access</div>
-                <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Select Profile to Unlock</div>
+                <h2 className="text-lg font-black text-white font-heading">Manager Access</h2>
+                <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Select Manager Account</div>
               </div>
               <div className="flex flex-col gap-3 mb-6">
                 {managerEmployees.map(emp => (
-                  <button key={emp.id} onClick={() => { setAuthEmp(emp); setMgrLoginMode("pin"); }} className="flex items-center gap-4 p-4 rounded-xl border border-[#1e2a38] bg-[#131b27] hover:border-[#7ec8e3] text-left w-full transition-all">
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[#111] text-[14px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.avatar}</div>
-                    <div><div className="font-bold text-[15px] text-[#e8f4f8]">{emp.name}</div><div className="text-[11px] mt-0.5" style={{color: ROLE_COLORS[emp.role]||"#7ec8e3"}}>{emp.role}</div></div>
+                  <button
+                    key={emp.id}
+                    onClick={() => {
+                      setAuthEmp(emp)
+                      setMgrLoginMode("pin")
+                    }}
+                    className="flex items-center gap-4 p-4 rounded-2xl border border-white/5 bg-[#111827]/40 hover:border-[#fca311]/40 text-left w-full transition-all duration-200 cursor-pointer"
+                  >
+                    <div
+                      className="w-11 h-11 rounded-full flex items-center justify-center font-bold text-[#111] font-mono text-xs shadow-md"
+                      style={{ backgroundColor: ROLE_COLORS[emp.role] || "#7ec8e3" }}
+                    >
+                      {emp.avatar}
+                    </div>
+                    <div>
+                      <div className="text-sm font-black text-white font-heading">{emp.name}</div>
+                      <div className="text-[10px] font-semibold mt-0.5" style={{ color: ROLE_COLORS[emp.role] || "#7ec8e3" }}>
+                        {emp.role}
+                      </div>
+                    </div>
                   </button>
                 ))}
               </div>
-              <div className="border-t border-[#1e2a38] pt-6">
-                <button onClick={() => setMgrLoginMode("email")} className="w-full bg-[#1e2a38] text-[#e8f4f8] py-3 rounded-lg font-bold text-[12px] uppercase tracking-wide hover:bg-[#2a4060] transition-colors mb-3">Remote / Email Login</button>
-                <button onClick={() => setScreen("kiosk")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[12px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Cancel</button>
+              <div className="border-t border-white/5 pt-6 flex flex-col gap-3">
+                <button
+                  onClick={() => setMgrLoginMode("email")}
+                  className="w-full bg-[#111827] border border-slate-800 text-white py-3 rounded-xl font-heading font-black text-xs uppercase tracking-wider hover:bg-slate-800 transition-colors cursor-pointer active:scale-95"
+                >
+                  Remote Email Login
+                </button>
+                <button
+                  onClick={() => setScreen("kiosk")}
+                  className="w-full bg-transparent border border-slate-800 text-[#7ec8e3] py-3 rounded-xl font-heading font-black text-xs uppercase tracking-wider hover:bg-slate-900 transition-colors cursor-pointer active:scale-95"
+                >
+                  Cancel
+                </button>
               </div>
-           </div>
-        </div>
-      )
-    }
-
-    if (mgrLoginMode === "pin" && authEmp) {
-      return (
-        <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-          <div className="w-full max-w-[320px]">
-            <div className="text-center mb-6"><div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] text-[20px] shrink-0" style={{backgroundColor: ROLE_COLORS[authEmp.role]||"#7ec8e3"}}>{authEmp.avatar}</div><div className="text-[20px] font-bold">{authEmp.name}</div></div>
-            <PinPad correctPin={authEmp.pin} label="MANAGER PIN" onSuccess={() => { setMgrProfile(authEmp); setScreen("manager-dashboard"); }} onCancel={() => setMgrLoginMode("select")} />
+            </div>
           </div>
-        </div>
-      )
-    }
+        )
+      }
 
-    if (mgrLoginMode === "email") {
-      return (
-        <div className="bg-[#0d1117] font-sans min-h-screen flex items-center justify-center p-6 text-[#e8e8e8]">
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault()
-              const email = e.target.email.value
-              const password = e.target.password.value
-              const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-              if (error) return alert("Login failed: " + error.message)
-              
-              const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
-              const validRoles = ["Site Manager", "Park Admin", "Manager"]
-              
-              if (empData && validRoles.includes(empData.role)) {
-                setMgrSession(data.session)
-                setMgrProfile(empData)
-                setScreen("manager-dashboard")
-              } else {
-                alert("Access Denied: You do not have management permissions.")
-                await supabase.auth.signOut()
-              }
-            }}
-            className="w-full max-w-[340px] bg-[#131b27] border border-[#1e2a38] p-6 rounded-2xl shadow-xl"
-          >
-            <div className="text-center mb-6">
-              <div className="text-[20px] font-bold text-[#e8f4f8]">Secure Web Login</div>
-              <div className="text-[11px] text-[#4a6a8a] mt-1 uppercase tracking-widest font-mono">Email Authentication</div>
+      if (mgrLoginMode === "pin" && authEmp) {
+        return (
+          <div className="bg-transparent min-h-screen flex items-center justify-center p-6 text-[#f3f4f6]">
+            <div className="w-full max-w-[320px]">
+              <div className="text-center mb-6">
+                <div
+                  className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center font-bold text-[#111] font-mono text-lg shadow-md"
+                  style={{ backgroundColor: ROLE_COLORS[authEmp.role] || "#7ec8e3" }}
+                >
+                  {authEmp.avatar}
+                </div>
+                <div className="text-lg font-black text-white font-heading">{authEmp.name}</div>
+              </div>
+              <PinPad
+                correctPin={authEmp.pin}
+                label="ENTER MANAGER PIN"
+                onSuccess={() => {
+                  setMgrProfile(authEmp)
+                  setScreen("manager-dashboard")
+                }}
+                onCancel={() => setMgrLoginMode("select")}
+              />
             </div>
-            <div className="mb-4">
-              <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Email Address</label>
-              <input name="email" type="email" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
-            </div>
-            <div className="mb-6">
-              <label className="text-[10px] text-[#4a6a8a] uppercase font-mono tracking-widest block mb-2">Password</label>
-              <input name="password" type="password" required className="w-full bg-[#0d1117] border border-[#2a4060] text-[#e8f4f8] rounded-lg p-3 text-[14px] focus:outline-none focus:border-[#7ec8e3]" />
-            </div>
-            <button type="submit" className="w-full bg-[#7ec8e3] text-[#0d1117] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:opacity-90 transition-opacity mb-3">Sign In</button>
-            <button type="button" onClick={() => setMgrLoginMode("select")} className="w-full bg-transparent border border-[#2a4060] text-[#7ec8e3] py-3 rounded-lg font-bold text-[13px] uppercase tracking-wide hover:bg-[#1a2535] transition-colors">Back to PIN Login</button>
-          </form>
-        </div>
-      )
-    }
-  }
+          </div>
+        )
+      }
 
-  if(screen === "manager-dashboard") {
-    const totalFacility = employees.reduce((a, e) => {
-      const s = timesheets[e.id] || { gross: 0, employerTax: 0, totalCost: 0, hours: 0 }
-      return { gross: a.gross + s.gross, taxes: a.taxes + s.employerTax, total: a.total + s.totalCost, hours: a.hours + parseFloat(s.hours) }
-    }, { gross: 0, taxes: 0, total: 0, hours: 0 })
-
-    const availableTabs = [
-      { id: "clock", label: "LIVE CLOCK" },
-      { id: "labor", label: "LABOR COST" },
-      { id: "schedule", label: "SCHEDULER" },
-      { id: "payroll", label: "PAY CALC" },
-      { id: "employees", label: "EMPLOYEES" },
-      { id: "timesheets", label: "TIMESHEETS" }
-    ]
-
-    return (
-      <div className="bg-[#0d1117] font-sans min-h-screen text-[#e8e8e8] max-w-[1000px] mx-auto pb-20 px-4 sm:px-6">
-        {showAddEmp && <EmployeeForm title="Add Employee" onSave={handleSaveEmployee} onClose={()=>setShowAddEmp(false)} />}
-        {editEmp && <EmployeeForm title="Edit Details" initial={editEmp} onSave={handleSaveEmployee} onClose={()=>setEditEmp(null)} />}
-        
-        <div className="pt-6 border-b border-[#1a2535] mb-6">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-4">
-            <div><div className="text-[9px] text-[#4a6a8a] tracking-[0.2em] uppercase font-mono mb-1">Pine Lake Recreation</div><h1 className="text-[20px] font-bold m-0 text-[#e8f4f8]">{mgrProfile?.role || "Manager"} Dashboard</h1></div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#7ec8e3]">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div></div>
-              
-              <button onClick={() => {
-                const isKiosk = localStorage.getItem("official_kiosk_token")
-                if (isKiosk) {
-                  localStorage.removeItem("official_kiosk_token")
-                  alert("This device is NO LONGER the official kiosk. Clock-ins disabled here.")
+      if (mgrLoginMode === "email") {
+        return (
+          <div className="bg-transparent min-h-screen flex items-center justify-center p-6 text-[#f3f4f6]">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const email = e.target.email.value
+                const password = e.target.password.value
+                
+                const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+                if (error) return alert("Login failed: " + error.message)
+                
+                let managerUser = null
+                
+                if (IS_MOCK_DATABASE) {
+                  // In mock database mode, check mock accounts
+                  const emps = JSON.parse(localStorage.getItem("pinelake_employees") || "[]")
+                  const mockEmp = emps.find(emp => emp.auth_id === data.user.id)
+                  managerUser = mockEmp || { name: "Administrator", role: "Park Admin" }
                 } else {
-                  const token = Math.random().toString(36).substring(2) + Date.now().toString(36)
-                  localStorage.setItem("official_kiosk_token", token)
-                  alert("SUCCESS! This device is now registered as the Official Kiosk. Staff can now clock in.")
+                  const { data: empData } = await supabase.from("employees").select("*").eq("auth_id", data.user.id).single()
+                  managerUser = empData
                 }
-              }} className="bg-[#fca311] text-[#0d1117] font-bold text-[10px] px-3 py-1.5 rounded transition-opacity hover:opacity-90 w-fit">
-                {localStorage.getItem("official_kiosk_token") ? "Unregister Kiosk" : "Register Kiosk"}
-              </button>
-
-              <button onClick={async () => {
-                const newPass = window.prompt("Enter your new secure password (minimum 6 characters):")
-                if (newPass) {
-                  const { error } = await supabase.auth.updateUser({ password: newPass })
-                  if (error) alert("Error: " + error.message)
-                  else alert("Password updated successfully.")
+                
+                const validRoles = ["Site Manager", "Park Admin", "Manager"]
+                if (managerUser && validRoles.includes(managerUser.role)) {
+                  setMgrSession(data.session)
+                  setMgrProfile(managerUser)
+                  setScreen("manager-dashboard")
+                } else {
+                  alert("Access Denied: Account lacks administrative role privileges.")
+                  await supabase.auth.signOut()
                 }
-              }} className="bg-[#1e2a38] text-[#e8f4f8] text-[10px] px-3 py-1.5 rounded border border-[#2a4060] hover:bg-[#2a4060] transition-colors w-fit">Change Password</button>
+              }}
+              className="w-full max-w-[340px] bg-[#111827]/60 backdrop-blur-xl border border-white/5 p-6 rounded-3xl shadow-2xl"
+            >
+              <div className="text-center mb-6">
+                <h2 className="text-lg font-black text-white font-heading">Secure Web Login</h2>
+                <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Email Credentials</div>
+              </div>
+              <div className="mb-4">
+                <label className="text-[9px] text-gray-400 uppercase font-mono tracking-wider block mb-1.5">
+                  Email Address
+                </label>
+                <input
+                  name="email"
+                  type="email"
+                  defaultValue={IS_MOCK_DATABASE ? MOCK_ADMIN_EMAIL : ""}
+                  required
+                  className="w-full bg-slate-900 border border-slate-800 text-xs text-white rounded-xl p-3 focus:outline-none focus:border-[#7ec8e3]/80"
+                />
+              </div>
+              <div className="mb-6">
+                <label className="text-[9px] text-gray-400 uppercase font-mono tracking-wider block mb-1.5">
+                  Secure Password
+                </label>
+                <input
+                  name="password"
+                  type="password"
+                  defaultValue={IS_MOCK_DATABASE ? "0000" : ""}
+                  required
+                  className="w-full bg-slate-900 border border-slate-800 text-xs text-white rounded-xl p-3 focus:outline-none focus:border-[#7ec8e3]/80"
+                />
+              </div>
               
-              <button onClick={async ()=>{
-                await supabase.auth.signOut()
-                setMgrProfile(null)
-                setMgrSession(null)
-                setScreen("kiosk")
-              }} className="bg-[#ef476f] text-[#0d1117] font-bold text-[10px] px-3 py-1.5 rounded transition-opacity hover:opacity-90 w-fit">Logout</button>
-            </div>
+              <button
+                type="submit"
+                className="w-full bg-[#7ec8e3] text-[#070a13] py-3.5 rounded-xl font-heading font-black text-xs uppercase tracking-wider hover:bg-[#68b4d0] transition-colors cursor-pointer mb-3"
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => setMgrLoginMode("select")}
+                className="w-full bg-transparent border border-slate-800 text-[#7ec8e3] py-3 rounded-xl font-heading font-black text-xs uppercase tracking-wider hover:bg-slate-900 transition-colors cursor-pointer"
+              >
+                Back
+              </button>
+            </form>
           </div>
-          <div className="flex overflow-x-auto gap-1 sm:gap-4 pb-1">
-            {availableTabs.map((tab) => (
-              <button key={tab.id} style={managerTab === tab.id ? tabBtnActiveStyle : tabBtnStyle} onClick={()=>setMgrTab(tab.id)}>{tab.label}</button>
-            ))}
-          </div>
-        </div>
+        )
+      }
+    }
 
-        {managerTab === "clock" && (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-3 gap-2 sm:gap-4">
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-2 sm:p-4 text-center">
-                <div className="text-[16px] sm:text-[22px] font-bold font-mono text-[#06d6a0]">{activeCount}</div>
-                <div className="text-[8px] sm:text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1 sm:mt-1.5">Clocked In</div>
-              </div>
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-2 sm:p-4 text-center">
-                <div className="text-[16px] sm:text-[22px] font-bold font-mono text-[#7ec8e3]">{employees.length}</div>
-                <div className="text-[8px] sm:text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1 sm:mt-1.5">Total Staff</div>
-              </div>
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-2 sm:p-4 text-center">
-                <div className="text-[16px] sm:text-[22px] font-bold font-mono text-[#fca311]">{Object.keys(clockedIn).reduce((acc, id) => acc + getElapsed(parseInt(id))/3600, 0).toFixed(1)}h</div>
-                <div className="text-[8px] sm:text-[9px] text-[#4a6a8a] uppercase tracking-[0.1em] mt-1 sm:mt-1.5">Hours On-Clock</div>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3">
-              {employees.map(emp => {
-                const isIN = !!clockedIn[emp.id], elapsed = getElapsed(emp.id), col = ROLE_COLORS[emp.role]||"#7ec8e3"
-                return (
-                  <div key={emp.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${isIN ? "bg-[#0d1f14] border-[#06d6a0]" : "bg-[#131b27] border-[#1e2a38]"}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-[#111] text-[10px] sm:text-[12px]" style={{backgroundColor: col}}>{emp.avatar}</div>
-                      <div className="flex flex-col">
-                        <div className="font-bold text-[13px] sm:text-[14px] text-[#e8f4f8]">{emp.name}</div>
-                        <div className="text-[9px] sm:text-[10px] mt-0.5" style={{color: col}}>{emp.role}</div>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {isIN ? (
-                        <>
-                          <div className="font-mono text-[15px] sm:text-[18px] font-bold text-[#06d6a0] leading-none">{fmtElapsed(elapsed)}</div>
-                          <div className="text-[8px] sm:text-[9px] text-[#4a8a5a] font-mono mt-1 uppercase tracking-widest">Live Shift</div>
-                        </>
-                      ) : (
-                        <div className="text-[10px] text-[#3a4a5a] font-mono">— off clock</div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            {clockLog.length > 0 && (
-              <div className="mt-4">
-                <div className="text-[10px] text-[#3a4a5a] tracking-[0.15em] uppercase font-mono mb-3">Activity Log</div>
-                {clockLog.slice(0, 8).map((l, i) => (
-                  <div key={i} className="flex justify-between items-center bg-[#0d1117] p-2 rounded-lg mb-2 font-mono text-[11px]">
-                    <div className="flex gap-3">
-                      <span className={l.action === "IN" ? "text-[#06d6a0] font-bold" : l.action === "AUTO-OUT" ? "text-[#fca311] font-bold" : "text-[#ef476f] font-bold"}>{l.action}</span>
-                      <span className="text-[#a0b8d0]">{l.emp}</span>
-                    </div>
-                    <span className="text-[#4a6a8a]">{l.time}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+    if (screen === "manager-dashboard") {
+      return (
+        <ManagerDashboard
+          now={now}
+          employees={employees}
+          setEmployees={setEmployees}
+          schedules={schedules}
+          setSchedules={setSchedules}
+          clockedIn={clockedIn}
+          allLogs={allLogs}
+          setAllLogs={setAllLogs}
+          clockLog={clockLog}
+          managerSession={managerSession}
+          mgrProfile={mgrProfile}
+          setScreen={setScreen}
+          setMgrProfile={setMgrProfile}
+          setMgrSession={setMgrSession}
+          activeWeekKey={activeWeekKey}
+          targetDate={targetDate}
+          setTargetDate={setTargetDate}
+          timesheets={timesheets}
+          handleExportCSV={handleExportCSV}
+          handleExportXLSX={handleExportXLSX}
+          handleFinalizePayroll={handleFinalizePayroll}
+          handleSaveEmployee={handleSaveEmployee}
+          setShowAddEmp={setShowAddEmp}
+          editEmp={editEmp}
+          setEditEmp={setEditEmp}
+          EmployeeForm={EmployeeForm}
+          getElapsed={getElapsed}
+          parseTo24h={parseTo24h}
+          announcements={announcements}
+          loadData={loadData}
+        />
+      )
+    }
 
-        {managerTab === "labor" && (
-          <div className="flex flex-col gap-6">
-            <div>
-              <div className="flex justify-between items-center mb-4"><div className="text-[10px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono">Period To Date Summary</div>
-              <div className="flex gap-2"><button onClick={handleExportCSV} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">CSV</button><button onClick={handleExportXLSX} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] font-bold">EXCEL</button><button onClick={() => {
-                if (!managerSession) {
-                  alert("Security Lock: You must log out and use Secure Web Login (Email) to finalize payroll.")
-                  return
-                }
-                handleFinalizePayroll()
-              }} className="bg-[#06d6a0] text-[#0d1117] px-4 py-1.5 rounded font-bold text-[10px] uppercase">Finalize</button></div></div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#7ec8e3] font-bold">{totalFacility.hours.toFixed(1)}h</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Hours</div></div>
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#06d6a0] font-bold">{fmtMoney(totalFacility.gross)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Gross Wages</div></div>
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#fca311] font-bold">{fmtMoney(totalFacility.taxes)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Employer Taxes</div></div>
-                <div className="bg-[#131b27] border border-[#ef476f] rounded-xl p-3 sm:p-4 text-center"><div className="text-[16px] sm:text-[18px] font-mono text-[#ef476f] font-bold">{fmtMoney(totalFacility.total)}</div><div className="text-[8px] sm:text-[9px] text-[#4a6a8a] mt-1.5 font-mono tracking-widest uppercase">Total Labor Cost</div></div>
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-3">Per Employee Breakdown</div>
-              <div className="flex flex-col gap-3">
-                {employees.map(emp => {
-                  const s = timesheets[emp.id] || { regH:"0", otH:"0", liveH:"0", gross:0, employerTax:0, totalCost:0 }
-                  const maxC = Math.max(...employees.map(e => timesheets[e.id]?.totalCost || 0), 1)
-                  const col = ROLE_COLORS[emp.role]||"#7ec8e3"
-                  const isIN = !!clockedIn[emp.id]
-                  return (
-                    <div key={emp.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
-                      <div className="flex justify-between items-center mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#111] text-[10px] shrink-0" style={{backgroundColor: col}}>{emp.avatar}</div>
-                          <div><div className="font-bold text-[12px] flex items-center gap-2">{emp.name} {isIN && <span className="bg-[#0a2a1a] text-[#06d6a0] text-[8px] px-1.5 py-0.5 rounded-full font-mono">⏱ LIVE</span>}</div><div className="text-[10px]" style={{color:col}}>{emp.role} • ${Number(emp.baseRate || 0).toFixed(2)}/hr</div></div>
-                        </div>
-                        <div className="text-right"><div className="font-mono text-[16px] font-bold text-[#ef476f]">{fmtMoney(s.totalCost)}</div><div className="text-[9px] text-[#4a6a8a]">total cost</div></div>
-                      </div>
-                      <div className="h-1.5 bg-[#0d1117] rounded-full overflow-hidden mb-3"><div className="h-full rounded-full bg-gradient-to-r from-[#06d6a0] to-[#f4a261]" style={{width: `${(s.totalCost/maxC)*100}%`}}></div></div>
-                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        <div className="bg-[#0d1117] rounded-lg p-2 text-center"><div className="font-mono text-[10px] font-bold text-[#7ec8e3]">{s.regH}h</div><div className="text-[8px] text-[#3a4a5a] uppercase mt-1">Reg Hrs</div></div>
-                        <div className="bg-[#0d1117] rounded-lg p-2 text-center"><div className="font-mono text-[10px] font-bold text-[#fca311]">{s.otH}h</div><div className="text-[8px] text-[#3a4a5a] uppercase mt-1">OT Hrs</div></div>
-                        <div className="bg-[#0d1117] rounded-lg p-2 text-center"><div className="font-mono text-[10px] font-bold text-[#06d6a0]">{s.liveH}h</div><div className="text-[8px] text-[#3a4a5a] uppercase mt-1">Live</div></div>
-                        <div className="bg-[#0d1117] rounded-lg p-2 text-center"><div className="font-mono text-[10px] font-bold text-[#e8f4f8]">{fmtMoney(s.gross)}</div><div className="text-[8px] text-[#3a4a5a] uppercase mt-1">Gross</div></div>
-                        <div className="bg-[#0d1117] rounded-lg p-2 text-center"><div className="font-mono text-[10px] font-bold text-[#fca311]">{fmtMoney(s.employerTax)}</div><div className="text-[8px] text-[#3a4a5a] uppercase mt-1">Er. Tax</div></div>
-                        <div className="bg-[#0d1117] rounded-lg p-2 text-center"><div className="font-mono text-[10px] font-bold text-[#ef476f]">{fmtMoney(s.totalCost)}</div><div className="text-[8px] text-[#3a4a5a] uppercase mt-1">Total</div></div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {managerTab === "schedule" && (
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
-              <input type="date" value={targetDate} onChange={e=>setTargetDate(e.target.value)} className="bg-[#131b27] border border-[#2a4060] text-[#7ec8e3] rounded-lg p-1.5 px-3 text-[12px] font-mono" style={{colorScheme:"dark"}}/>
-              <div className="flex gap-2">
-                <button onClick={()=>{
-                  const prev = new Date(targetDate); prev.setDate(prev.getDate()-7)
-                  const pk = getSundayKey(prev.toISOString().split('T')[0])
-                  if(schedules[pk]) setSchedules(p=>({...p, [activeWeekKey]: JSON.parse(JSON.stringify(p[pk]))}))
-                }} className="border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded-lg text-[11px] hover:bg-[#1a2535]">Copy Prev Week</button>
-                <button onClick={async () => {
-                  if (!managerSession) {
-                    alert("Security Lock: You must log out and use Secure Web Login (Email) to save schedules.")
-                    return
-                  }
-                  const recs = []
-                  const grid = schedules[activeWeekKey] || {}
-                  for(const d of ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]){
-                    employees.forEach(e => recs.push({ week_key: activeWeekKey, day: d, employee_id: e.id, shift_time: grid[d]?.[e.id] || "" }))
-                  }
-                  await supabase.from("schedules").upsert(recs, { onConflict: "week_key,day,employee_id" })
-                  alert("Schedule Saved")
-                }} className="bg-[#06d6a0] text-[#0d1117] px-4 py-1.5 rounded-lg font-bold text-[11px] hover:opacity-90">Save Schedule</button>
-              </div>
-            </div>
-            <div className="overflow-x-auto bg-[#131b27] border border-[#1e2a38] rounded-xl p-3">
-              <table className="w-full text-left min-w-[800px] border-separate border-spacing-y-1.5">
-                <thead><tr><th className="p-2 text-[10px] text-[#4a6a8a] font-mono uppercase tracking-widest">Staff Member</th>{["SUN","MON","TUE","WED","THU","FRI","SAT"].map(d=><th key={d} className="p-2 text-[10px] text-[#4a6a8a] text-center font-mono tracking-widest">{d}</th>)}</tr></thead>
-                <tbody>{employees.map(e => (
-                  <tr key={e.id} className="bg-[#0d1117]">
-                    <td className="p-2.5 font-bold text-[12px] border-l-[3px] rounded-l-md" style={{borderLeftColor: ROLE_COLORS[e.role]}}>{e.name}</td>
-                    {["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map(d => {
-                      const val = schedules[activeWeekKey]?.[d]?.[e.id] || "OFF"
-                      const isO = val === "OFF"
-                      let start = "09:00", end = "17:00", shiftRole = e.role
-                      if (!isO) {
-                        const parts = val.split('|')
-                        const times = parts[0].split('-')
-                        start = times[0] || "09:00"
-                        end = times[1] || "17:00"
-                        shiftRole = parts[1] || e.role
-                      }
-                      
-                      return (
-                        <td key={d} className="p-1">
-                          <button onClick={()=>{
-                            const next = { ...schedules }; if(!next[activeWeekKey]) next[activeWeekKey] = {}
-                            if(!next[activeWeekKey][d]) next[activeWeekKey][d] = {}
-                            next[activeWeekKey][d][e.id] = isO ? `09:00-17:00|${e.role}` : "OFF"
-                            setSchedules(next)
-                          }} className="text-[9px] text-[#7ec8e3] block mx-auto mb-1 font-mono uppercase">{isO ? "Set" : "Off"}</button>
-                          {isO ? <div className="bg-[#1a140a] border border-[#fca31133] text-[#fca311] text-center text-[10px] font-bold py-2.5 rounded-md font-mono">OFF</div> :
-                            <div className="flex flex-col bg-[#131b27] border border-[#2a4060] p-1 rounded-md gap-0.5">
-                              <input type="time" value={parseTo24h(start)} onChange={ev=>{
-                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${ev.target.value}-${end}|${shiftRole}`
-                                setSchedules(next)
-                              }} className="bg-transparent text-[10px] text-center font-mono focus:outline-none" style={{colorScheme:"dark"}}/>
-                              <input type="time" value={parseTo24h(end)} onChange={ev=>{
-                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${start}-${ev.target.value}|${shiftRole}`
-                                setSchedules(next)
-                              }} className="bg-transparent text-[10px] text-center font-mono focus:outline-none" style={{colorScheme:"dark"}}/>
-                              <select value={shiftRole} onChange={ev=>{
-                                const next = { ...schedules }; next[activeWeekKey][d][e.id] = `${start}-${end}|${ev.target.value}`
-                                setSchedules(next)
-                              }} className="bg-transparent text-[9px] text-[#e8f4f8] text-center mt-1 focus:outline-none cursor-pointer">
-                                {availableRoles.map(r => <option key={r} value={r} className="bg-[#131b27]">{r}</option>)}
-                              </select>
-                            </div>}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {managerTab === "payroll" && payEmp && (
-          <div className="flex flex-col md:flex-row gap-5">
-            <div className="w-full md:w-1/3 flex flex-col gap-2">
-              <div className="text-[9px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-1.5">Employee</div>
-              {employees.map(emp => (
-                <button key={emp.id} onClick={()=>setPayEmp(emp)} className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${payEmp.id === emp.id ? "bg-[#0e2030] border-[#7ec8e3]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#2a4060]"}`}>
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[#111] text-[9px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]}}>{emp.avatar}</div>
-                  <div className="flex-1"><div className={`text-[12px] font-bold ${payEmp.id===emp.id?"text-[#7ec8e3]":"text-[#a0b8d0]"}`}>{emp.name}</div><div className="text-[9px] text-[#4a6a8a]">${Number(emp.baseRate || 0).toFixed(2)}/hr</div></div>
-                  {clockedIn[emp.id] && <div className="text-[10px] text-[#06d6a0]">●</div>}
-                </button>
-              ))}
-            </div>
-            <div className="w-full md:w-2/3 flex flex-col gap-4">
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
-                <div className="flex gap-5 flex-wrap">
-                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">Base</div><div className="text-[14px] font-bold font-mono text-[#7ec8e3] mt-1">${Number(payEmp.baseRate || 0).toFixed(2)}/hr</div></div>
-                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">OT (1.5x)</div><div className="text-[14px] font-bold font-mono text-[#fca311] mt-1">${(Number(payEmp.baseRate || 0)*1.5).toFixed(2)}/hr</div></div>
-                  <div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em]">Bonus</div><div className="text-[14px] font-bold font-mono text-[#06d6a0] mt-1">{payEmp.bonusRate>0?`$${Number(payEmp.bonusRate).toFixed(2)}/hr`:"—"}</div></div>
-                </div>
-                {clockedIn[payEmp.id] && <div className="mt-3 bg-[#0a1a0a] border border-[#1a4a2a] rounded-lg p-2 font-mono text-[11px] text-[#06d6a0]">⏱ Live Shift Active: {fmtElapsed(getElapsed(payEmp.id))}</div>}
-              </div>
-              <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
-                <div className="text-[10px] text-[#4a6a8a] mb-3 font-mono tracking-[0.1em] uppercase">Pay Statement · {payEmp.name}</div>
-                {(() => {
-                  const s = timesheets[payEmp.id] || { hours:"0.00", regH:"0.00", otH:"0.00", gross:0, fed:0, state:0, fica:0, county:0, netPay:0 }
-                  return (
-                    <>
-                      <div className="flex gap-5 mb-4">
-                        <div><div className="text-[18px] font-bold font-mono text-[#7ec8e3] leading-none">{s.hours}</div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em] mt-1.5">Total</div></div>
-                        <div><div className="text-[18px] font-bold font-mono text-[#06d6a0] leading-none">{s.regH}</div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em] mt-1.5">Regular</div></div>
-                        <div><div className="text-[18px] font-bold font-mono text-[#fca311] leading-none">{s.otH}</div><div className="text-[8px] text-[#4a6a8a] uppercase font-mono tracking-[0.1em] mt-1.5">Overtime</div></div>
-                      </div>
-                      
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Regular Pay</span><span className="text-[11px] font-mono text-[#4a6a8a]">{s.regH}h × ${Number(payEmp.baseRate || 0).toFixed(2)}</span><span className="text-[13px] font-mono font-bold text-[#e8f4f8]">${(s.regH*Number(payEmp.baseRate || 0)).toFixed(2)}</span></div>
-                      {parseFloat(s.otH) > 0 && <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Overtime Pay</span><span className="text-[11px] font-mono text-[#4a6a8a]">{s.otH}h × ${(Number(payEmp.baseRate || 0)*1.5).toFixed(2)}</span><span className="text-[13px] font-mono font-bold text-[#fca311]">${(s.otH*Number(payEmp.baseRate || 0)*1.5).toFixed(2)}</span></div>}
-                      <div className="flex justify-between items-center py-2.5 border-t border-[#2a3a4a] mt-1"><span className="text-[13px] font-bold text-[#e8f4f8]">Gross Pay</span><span className="text-[15px] font-mono font-bold text-[#7ec8e3]">{fmtMoney(s.gross)}</span></div>
-                      
-                      <div className="h-3"></div>
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">Federal Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.fedTaxRate || 0).toFixed(1)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.fed)}</span></div>
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">State Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.stateTaxRate || 0).toFixed(1)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.state)}</span></div>
-                      <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">FICA</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.ficaTaxRate || 0).toFixed(2)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.fica)}</span></div>
-                      {Number(payEmp.countyTaxRate) > 0 && <div className="flex justify-between items-center py-1.5 border-b border-[#1a2535]"><span className="text-[12px] text-[#8090a0]">County Tax</span><span className="text-[11px] font-mono text-[#4a6a8a]">{Number(payEmp.countyTaxRate || 0).toFixed(1)}%</span><span className="text-[12px] font-mono text-[#ef476f]">-{fmtMoney(s.county)}</span></div>}
-                      
-                      <div className="mt-3 p-3 rounded-lg bg-gradient-to-br from-[#0a2a1a] to-[#0d2030] border border-[#1a4a2a] flex justify-between items-center">
-                        <div className="text-[11px] text-[#4a6a8a] uppercase tracking-[0.15em] font-mono">Net Pay</div>
-                        <div className="text-[20px] font-mono font-bold text-[#06d6a0]">{fmtMoney(s.netPay)}</div>
-                      </div>
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {managerTab === "employees" && (
-          <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-center mb-2"><h2 className="text-[14px] font-bold text-[#e8f4f8]">Staff Roster</h2><button onClick={() => {
-              if (!managerSession) {
-                alert("Security Lock: You must log out and use Secure Web Login (Email) to modify staff.")
-                return
-              }
-              setShowAddEmp(true)
-            }} className="bg-[#7ec8e3] text-[#0d1117] px-4 py-2 rounded-lg font-bold text-[11px] hover:opacity-90">+ Add Employee</button></div>
-            {employees.map(e => (
-              <div key={e.id} className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4 flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] text-[13px] shrink-0" style={{backgroundColor: ROLE_COLORS[e.role]}}>{e.avatar}</div>
-                  <div><div className="text-[14px] font-bold">{e.name}</div><div className="text-[11px] text-[#4a6a8a] font-mono mt-0.5">{e.role.toUpperCase()}</div></div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="hidden sm:flex items-center gap-3 bg-[#0a1520] border border-[#1a3050] rounded-lg p-2 mr-2">
-                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#7ec8e3]">${Number(e.baseRate || 0).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Base</div></div>
-                    <div className="w-px h-5 bg-[#1a3050]"></div>
-                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#fca311]">${(Number(e.baseRate || 0)*1.5).toFixed(2)}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">OT</div></div>
-                    <div className="w-px h-5 bg-[#1a3050]"></div>
-                    <div className="text-center"><div className="text-[12px] font-bold font-mono text-[#06d6a0]">{Number(e.bonusRate)>0?`$${Number(e.bonusRate).toFixed(2)}`:"—"}</div><div className="text-[8px] text-[#4a6a8a] uppercase tracking-widest mt-1">Bonus</div></div>
-                  </div>
-                  <button onClick={() => {
-                    if (!managerSession) {
-                      alert("Security Lock: You must log out and use Secure Web Login (Email) to modify staff.")
-                      return
-                    }
-                    setEditEmp(e)
-                  }} className="bg-[#1a2a3a] border border-[#2a4060] text-[#7ec8e3] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:bg-[#2a4060] transition-colors shrink-0">✏</button>
-                  <button onClick={async () => {
-                    if (!managerSession) {
-                      alert("Security Lock: You must log out and use Secure Web Login (Email) to modify staff.")
-                      return
-                    }
-                    if (window.confirm("Are you sure you want to delete " + e.name + "?")) {
-                      const confirmationText = window.prompt("Type DELETE to confirm permanent removal:")
-                      if (confirmationText === "DELETE") {
-                        await supabase.from("employees").delete().eq("id", e.id)
-                        setEmployees(prev => prev.filter(emp => emp.id !== e.id))
-                        alert(e.name + " has been removed.")
-                      } else if (confirmationText !== null) {
-                        alert("Deletion canceled. The text did not match.")
-                      }
-                    }
-                  }} className="bg-[#ef476f] text-[#0d1117] w-8 h-8 rounded-lg flex items-center justify-center text-[14px] hover:opacity-90 transition-opacity shrink-0 ml-2">🗑</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {managerTab === "timesheets" && (
-          <div className="flex flex-col md:flex-row gap-5">
-            {/* Left Column: Employee Selector */}
-            <div className="w-full md:w-1/3 flex flex-col gap-2">
-              <div className="text-[9px] text-[#4a6a8a] tracking-[0.15em] uppercase font-mono mb-1.5">Select Staff Member</div>
-              {employees.map(emp => (
-                <button key={emp.id} onClick={()=>{setTsEmp(emp); setEditLog(null);}} className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${tsEmp?.id === emp.id ? "bg-[#0e2030] border-[#7ec8e3]" : "bg-[#131b27] border-[#1e2a38] hover:border-[#2a4060]"}`}>
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[#111] text-[9px] shrink-0" style={{backgroundColor: ROLE_COLORS[emp.role]}}>{emp.avatar}</div>
-                  <div className="flex-1"><div className={`text-[12px] font-bold ${tsEmp?.id===emp.id?"text-[#7ec8e3]":"text-[#a0b8d0]"}`}>{emp.name}</div></div>
-                </button>
-              ))}
-            </div>
-
-            {/* Right Column: Punch Editor */}
-            <div className="w-full md:w-2/3 flex flex-col gap-4">
-              {!tsEmp ? (
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-8 text-center text-[#4a6a8a] text-[12px]">Select an employee to view and edit their time punches.</div>
-              ) : (
-                <div className="bg-[#131b27] border border-[#1e2a38] rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-4 border-b border-[#1a2535] pb-3">
-                    <div className="text-[12px] font-bold text-[#e8f4f8]">Punch History: {tsEmp.name}</div>
-                    <button onClick={() => {
-                      if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
-                      setEditLog({ id: 'draft' })
-                      const d = new Date()
-                      d.setHours(9, 0, 0, 0) 
-                      setLogEditData({ time: getLocalDatetimeString(d), action: 'IN' })
-                    }} className="bg-[#1e2a38] border border-[#2a4060] text-[#7ec8e3] px-3 py-1.5 rounded text-[10px] hover:bg-[#2a4060]">Add Missing Punch</button>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {editLog?.id === 'draft' && (
-                      <div className="bg-[#0d1f14] border border-[#06d6a0] p-3 rounded-lg flex flex-col sm:flex-row gap-3 items-center mb-2 shadow-[0_0_15px_rgba(6,214,160,0.1)]">
-                        <div className="text-[10px] text-[#06d6a0] font-bold uppercase tracking-widest sm:w-16 text-center">NEW</div>
-                        <input type="datetime-local" value={logEditData.time} onChange={e => setLogEditData({...logEditData, time: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto flex-1" style={{colorScheme:"dark"}}/>
-                        <select value={logEditData.action} onChange={e => setLogEditData({...logEditData, action: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto">
-                          <option value="IN">IN</option><option value="OUT">OUT</option><option value="BREAK_START">BREAK_START</option><option value="BREAK_END">BREAK_END</option>
-                        </select>
-                        <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                          <button onClick={async () => {
-                            const utcDate = new Date(logEditData.time).toISOString()
-                            const { error } = await supabase.from('clock_logs').insert([{ employee_id: tsEmp.id, action: logEditData.action, created_at: utcDate }])
-                            if (error) return alert("Insert failed: " + error.message)
-                            
-                            // The app relies strictly on the database real-time listener to update the UI
-                            setEditLog(null)
-                          }} className="bg-[#06d6a0] text-[#0d1117] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Save New</button>
-                          <button onClick={()=>setEditLog(null)} className="bg-[#1e2a38] text-[#e8f4f8] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Cancel</button>
-                        </div>
-                      </div>
-                    )}
-
-                    {allLogs.filter(l => l.employee_id === tsEmp.id).slice(0, 30).map(log => {
-                      const isEditing = editLog?.id === log.id;
-                      const logDate = new Date(log.created_at);
-                      
-                      if (isEditing) return (
-                        <div key={log.id} className="bg-[#0d1117] border border-[#7ec8e3] p-3 rounded-lg flex flex-col sm:flex-row gap-3 items-center">
-                          <input type="datetime-local" value={logEditData.time} onChange={e => setLogEditData({...logEditData, time: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto flex-1" style={{colorScheme:"dark"}}/>
-                          <select value={logEditData.action} onChange={e => setLogEditData({...logEditData, action: e.target.value})} className="bg-[#131b27] border border-[#2a4060] text-[#e8f4f8] rounded p-1.5 text-[11px] font-mono focus:outline-none w-full sm:w-auto">
-                            <option value="IN">IN</option><option value="OUT">OUT</option><option value="BREAK_START">BREAK_START</option><option value="BREAK_END">BREAK_END</option><option value="AUTO-OUT">AUTO-OUT</option>
-                          </select>
-                          <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                            <button onClick={async () => {
-                              const utcDate = new Date(logEditData.time).toISOString()
-                              const { error } = await supabase.from('clock_logs').update({ action: logEditData.action, created_at: utcDate }).eq('id', log.id)
-                              if (error) return alert("Update failed: " + error.message)
-                              setAllLogs(prev => prev.map(l => l.id === log.id ? { ...l, action: logEditData.action, created_at: utcDate } : l))
-                              setEditLog(null)
-                            }} className="bg-[#06d6a0] text-[#0d1117] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Save</button>
-                            <button onClick={()=>setEditLog(null)} className="bg-[#1e2a38] text-[#e8f4f8] px-3 py-1.5 rounded font-bold text-[10px] flex-1">Cancel</button>
-                          </div>
-                        </div>
-                      )
-
-                      return (
-                        <div key={log.id} className="bg-[#0d1117] border border-[#1e2a38] p-3 rounded-lg flex justify-between items-center hover:border-[#2a4060] transition-colors gap-2">
-                          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
-                            <div className={`w-16 sm:w-20 text-[10px] font-bold uppercase tracking-widest shrink-0 ${log.action === 'IN' || log.action === 'BREAK_END' ? 'text-[#06d6a0]' : log.action === 'AUTO-OUT' ? 'text-[#fca311]' : 'text-[#ef476f]'}`}>{log.action}</div>
-                            <div className="truncate">
-                              <div className="text-[11px] sm:text-[12px] text-[#e8f4f8] truncate">{logDate.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric'})}</div>
-                              <div className="text-[9px] sm:text-[10px] font-mono text-[#4a6a8a] mt-0.5">{logDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            </div>
-                          </div>
-                          {/* Fixed Action Row: Visible on mobile, no hover required */}
-                          <div className="flex gap-1.5 shrink-0">
-                            <button onClick={() => {
-                              if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
-                              setEditLog(log)
-                              setLogEditData({ time: getLocalDatetimeString(logDate), action: log.action })
-                            }} className="text-[#7ec8e3] bg-[#1a2a3a] border border-[#2a4060] p-2 rounded-lg text-[11px] h-8 w-8 flex items-center justify-center transition-colors hover:bg-[#2a4060]">✏️</button>
-                            <button onClick={async () => {
-                              if (!managerSession) return alert("Security Lock: You must log out and use Secure Web Login (Email) to edit timesheets.")
-                              if(window.confirm("Permanently delete this time punch?")) {
-                                await supabase.from('clock_logs').delete().eq('id', log.id)
-                                setAllLogs(prev => prev.filter(l => l.id !== log.id))
-                              }
-                            }} className="text-[#ef476f] bg-[#2a1a1a] border border-[#4a2a2a] p-2 rounded-lg text-[11px] h-8 w-8 flex items-center justify-center transition-colors hover:bg-[#4a2a2a]">🗑</button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-      </div>
-    )
+    return null
   }
-  return null
+
+  return (
+    <div className="relative min-h-screen overflow-x-hidden">
+      <WeatherEffects weather={weather} />
+      <div className="relative z-10">
+        {showAddEmp && (
+          <EmployeeForm title="Add Staff Member" onSave={handleSaveEmployee} onClose={() => setShowAddEmp(false)} />
+        )}
+        {editEmp && (
+          <EmployeeForm
+            title="Edit Details"
+            initial={editEmp}
+            onSave={handleSaveEmployee}
+            onClose={() => setEditEmp(null)}
+          />
+        )}
+        {renderScreen()}
+      </div>
+    </div>
+  )
 }
