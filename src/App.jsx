@@ -885,15 +885,29 @@ export default function PineLakeApp() {
               </div>
               <div className="text-base font-black text-white font-heading">{authEmp.name}</div>
             </div>
-            <PinPad
-              correctPin={authEmp.pin}
-              label="ENTER PORTAL PIN"
-              onSuccess={() => {
-                setPortalEmp(authEmp)
-                setScreen("portal-dashboard")
-              }}
-              onCancel={() => setScreen("portal-select")}
-            />
+            {authEmp.authMethod === "face" ? (
+              <FaceScanUI
+                onSuccess={(img) => {
+                  setCapturedPhoto(img)
+                  setPortalEmp(authEmp)
+                  setScreen("portal-dashboard")
+                }}
+                onCancel={() => {
+                  setCapturedPhoto(null)
+                  setScreen("portal-select")
+                }}
+              />
+            ) : (
+              <PinPad
+                correctPin={authEmp.pin}
+                label="ENTER PORTAL PIN"
+                onSuccess={() => {
+                  setPortalEmp(authEmp)
+                  setScreen("portal-dashboard")
+                }}
+                onCancel={() => setScreen("portal-select")}
+              />
+            )}
           </div>
         </div>
       )
@@ -986,15 +1000,29 @@ export default function PineLakeApp() {
                 </div>
                 <div className="text-lg font-black text-white font-heading">{authEmp.name}</div>
               </div>
-              <PinPad
-                correctPin={authEmp.pin}
-                label="ENTER MANAGER PIN"
-                onSuccess={() => {
-                  setMgrProfile(authEmp)
-                  setScreen("manager-dashboard")
-                }}
-                onCancel={() => setMgrLoginMode("select")}
-              />
+              {authEmp.authMethod === "face" ? (
+                <FaceScanUI
+                  onSuccess={(img) => {
+                    setCapturedPhoto(img)
+                    setMgrProfile(authEmp)
+                    setScreen("manager-dashboard")
+                  }}
+                  onCancel={() => {
+                    setCapturedPhoto(null)
+                    setMgrLoginMode("select")
+                  }}
+                />
+              ) : (
+                <PinPad
+                  correctPin={authEmp.pin}
+                  label="ENTER MANAGER PIN"
+                  onSuccess={() => {
+                    setMgrProfile(authEmp)
+                    setScreen("manager-dashboard")
+                  }}
+                  onCancel={() => setMgrLoginMode("select")}
+                />
+              )}
             </div>
           </div>
         )

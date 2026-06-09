@@ -9,21 +9,31 @@ export default function FaceScanUI({ onSuccess, onCancel }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
 
+  const [errorMsg, setErrorMsg] = useState("")
+
   // Start webcam on mount
   useEffect(() => {
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: "user", width: { ideal: 300 }, height: { ideal: 300 } } })
-      .then((stream) => {
+    const startWebcam = async () => {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Webcam API not supported (requires HTTPS or localhost).")
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "user", width: { ideal: 300 }, height: { ideal: 300 } } 
+        })
         streamRef.current = stream
         setHasWebcam(true)
         if (videoRef.current) {
           videoRef.current.srcObject = stream
         }
-      })
-      .catch((err) => {
-        console.warn("Webcam blocked or not available, using placeholder mockup:", err)
+      } catch (err) {
+        console.warn("Webcam blocked or not available:", err)
+        setErrorMsg(err.message || "Unknown camera error")
         setHasWebcam(false)
-      })
+      }
+    }
+
+    startWebcam()
 
     // Cleanup tracks on unmount
     return () => {
@@ -152,10 +162,15 @@ export default function FaceScanUI({ onSuccess, onCancel }) {
             />
           ) : (
             /* Fallback avatar mockup */
-            <div className="flex flex-col items-center justify-center">
-              <div className={`text-5xl leading-none mb-1.5 transition-transform duration-300 ${done ? "scale-110 text-[#06d6a0]" : "text-gray-300"}`}>
+            <div className="flex flex-col items-center justify-center w-full px-2 text-center">
+              <div className={`text-4xl leading-none mb-1 transition-transform duration-300 ${done ? "scale-110 text-[#06d6a0]" : "text-gray-300"}`}>
                 👤
               </div>
+              {errorMsg && (
+                <div className="text-[7px] text-red-400 font-mono leading-tight bg-black/60 p-1 rounded-sm mt-1 max-w-full overflow-hidden text-ellipsis">
+                  {errorMsg}
+                </div>
+              )}
             </div>
           )}
 
