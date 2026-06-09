@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react"
 import { supabase, IS_MOCK_DATABASE, MOCK_ADMIN_EMAIL, MOCK_MGR_EMAIL } from "./lib/supabase"
 import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
