@@ -103,12 +103,22 @@ export default function KioskView({
 
         {/* Kiosk Header */}
         <div className="text-center pt-2 pb-8 mb-6 border-b border-white/5">
-          <div className="text-[10px] font-heading font-black text-[#7ec8e3] uppercase tracking-[0.25em] mb-2">
-            Pine Lake Recreation
+          <div className="relative w-full max-w-md mx-auto mb-6 rounded-2xl overflow-hidden shadow-2xl border border-white/10 group">
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0f1d] to-transparent z-10"></div>
+            <img 
+              src="/assets/hero_visual.png" 
+              alt="Pine Lake Recreation Hero" 
+              className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-700 ease-out" 
+            />
+            <div className="absolute bottom-4 left-0 w-full text-center z-20">
+              <div className="text-[10px] font-heading font-black text-[#7ec8e3] uppercase tracking-[0.25em] drop-shadow-md">
+                Pine Lake Recreation
+              </div>
+              <h1 className="text-3xl font-black text-white leading-tight font-heading tracking-tight drop-shadow-lg">
+                Station Time Clock
+              </h1>
+            </div>
           </div>
-          <h1 className="text-3xl font-black text-white leading-tight mb-2 font-heading tracking-tight">
-            Station Time Clock
-          </h1>
           <div className="flex flex-col items-center">
             <span className="font-mono text-2xl font-bold text-gray-300 tracking-wider">
               {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
