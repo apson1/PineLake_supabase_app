@@ -25,6 +25,7 @@ export default function ManagerDashboard({
   setScreen,
   setMgrProfile,
   setMgrSession,
+  setMgrLoginMode,
   activeWeekKey,
   targetDate,
   setTargetDate,
@@ -101,6 +102,10 @@ export default function ManagerDashboard({
 
   const handleDrop = async (ev, targetEmpId) => {
     ev.preventDefault()
+    if (!managerSession) {
+      alert("Access Denied: PIN login only grants read-only access. Please sign in with email to modify schedules.")
+      return
+    }
     try {
       const data = JSON.parse(ev.dataTransfer.getData("text/plain"))
       if (!data || !data.sourceEmpId || !data.shiftVal) return
@@ -182,6 +187,7 @@ export default function ManagerDashboard({
   }, [schedules, activeWeekKey])
 
   const handleAddStation = async (station) => {
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to add stations.")
     const { error } = await supabase.from("stations").insert([station])
     if (error) {
       alert("Failed to add station: " + error.message)
@@ -191,6 +197,7 @@ export default function ManagerDashboard({
   }
 
   const handleEditStation = async (id, updates) => {
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to edit stations.")
     const { error } = await supabase.from("stations").update(updates).eq("id", id)
     if (error) {
       alert("Failed to edit station: " + error.message)
@@ -200,6 +207,7 @@ export default function ManagerDashboard({
   }
 
   const handleDeleteStation = async (id) => {
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to delete stations.")
     if (!confirm("Are you sure you want to delete this station?")) return
     const { error } = await supabase.from("stations").delete().eq("id", id)
     if (error) {
@@ -223,6 +231,7 @@ export default function ManagerDashboard({
   }
 
   const resolveKeepLocal = async (conflict) => {
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to resolve conflicts.")
     const rec = {
       week_key: activeWeekKey,
       day: conflict.day,
@@ -236,6 +245,7 @@ export default function ManagerDashboard({
   }
 
   const resolveAcceptServer = (conflict) => {
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to resolve conflicts.")
     setSchedules(prev => {
       const next = { ...prev }
       if (!next[activeWeekKey]) next[activeWeekKey] = {}
@@ -254,6 +264,7 @@ export default function ManagerDashboard({
 
   const handleAddAnnouncement = async (e) => {
     e.preventDefault()
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to post announcements.")
     if (!newNotice.trim()) return
     
     const record = {
@@ -273,6 +284,7 @@ export default function ManagerDashboard({
   }
 
   const handleDeleteAnnouncement = async (id) => {
+    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to delete announcements.")
     if (!confirm("Are you sure you want to delete this announcement?")) return
     const { error } = await supabase.from("announcements").delete().eq("id", id)
     if (error) {
@@ -332,6 +344,10 @@ export default function ManagerDashboard({
   // Handle register kiosk
   const isKioskRegistered = !!localStorage.getItem("official_kiosk_token")
   const toggleKioskRegistration = () => {
+    if (!managerSession) {
+      alert("Access Denied: PIN login only grants read-only access. Please sign in with email to register/unregister this kiosk device.")
+      return
+    }
     if (isKioskRegistered) {
       localStorage.removeItem("official_kiosk_token")
       alert("This device is NO LONGER registered as the official kiosk. Quick clock-in roster disabled.")
@@ -346,6 +362,22 @@ export default function ManagerDashboard({
     <div className="bg-transparent min-h-screen text-[#f3f4f6] selection:bg-[#7ec8e3]/30 selection:text-white font-sans antialiased">
       <div className="max-w-6xl mx-auto px-4 py-8">
         
+        {!managerSession && (
+          <div className="mb-6 p-4 rounded-3xl border border-amber-500/20 bg-amber-500/5 text-amber-400 text-xs font-mono flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_15px_rgba(252,163,17,0.05)] animate-pulse">
+            <span className="text-center sm:text-left">⚠️ READ-ONLY ACCESS: You are logged in via PIN code. Full modification privileges require Secure Email Login.</span>
+            <button
+              onClick={() => {
+                setMgrProfile(null)
+                setMgrLoginMode("email")
+                setScreen("manager-login")
+              }}
+              className="text-[10px] font-mono bg-amber-500 text-slate-950 px-3 py-1.5 rounded-xl border border-transparent hover:bg-amber-400 font-bold transition-all cursor-pointer shrink-0"
+            >
+              Email Login
+            </button>
+          </div>
+        )}
+
         {/* Top Header */}
         <div className="border-b border-white/5 pb-4 mb-6">
           <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
@@ -1688,7 +1720,10 @@ export default function ManagerDashboard({
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-sm font-black text-white font-heading">Staff Roster</h2>
               <button
-                onClick={() => setShowAddEmp(true)}
+                onClick={() => {
+                  if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to add employees.")
+                  setShowAddEmp(true)
+                }}
                 className="bg-[#7ec8e3] text-[#070a13] hover:bg-[#68b4d0] font-heading font-black text-xs py-2.5 px-4 rounded-xl cursor-pointer transition-all active:scale-95"
               >
                 + Add Employee
@@ -1738,7 +1773,10 @@ export default function ManagerDashboard({
                     </div>
 
                     <button
-                      onClick={() => setEditEmp(e)}
+                      onClick={() => {
+                        if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to edit employee details.")
+                        setEditEmp(e)
+                      }}
                       className="bg-[#111827] border border-slate-800 text-[#7ec8e3] hover:text-white w-8 h-8 rounded-xl flex items-center justify-center text-xs cursor-pointer hover:bg-slate-800 transition-colors"
                       title="Edit employee"
                     >
@@ -1747,6 +1785,7 @@ export default function ManagerDashboard({
                     
                     <button
                       onClick={async () => {
+                        if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to remove employees.")
                         if (confirm(`Are you sure you want to delete ${e.name}?`)) {
                           const confirmation = prompt("Type DELETE to confirm permanent removal:")
                           if (confirmation === "DELETE") {
@@ -2117,6 +2156,11 @@ export default function ManagerDashboard({
                 <button
                   type="button"
                   onClick={() => {
+                    if (!managerSession) {
+                      alert("Access Denied: PIN login only grants read-only access. Please sign in with email to modify schedules.")
+                      setEditingShift(null)
+                      return
+                    }
                     const next = { ...schedules }
                     if (!next[activeWeekKey]) next[activeWeekKey] = {}
                     if (!next[activeWeekKey][editingShift.day]) next[activeWeekKey][editingShift.day] = {}
@@ -2134,6 +2178,11 @@ export default function ManagerDashboard({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!managerSession) {
+                        alert("Access Denied: PIN login only grants read-only access. Please sign in with email to modify schedules.")
+                        setEditingShift(null)
+                        return
+                      }
                       const next = { ...schedules }
                       if (next[activeWeekKey]?.[editingShift.day]) {
                         delete next[activeWeekKey][editingShift.day][editingShift.employee.id]

@@ -541,6 +541,9 @@ export default function PineLakeApp() {
 
   // Finalize Payroll Action
   async function handleFinalizePayroll() {
+    if (!managerSession) {
+      return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to finalize payroll.")
+    }
     if (Object.values(clockedIn).some(s => s.status === "IN" || s.status === "BREAK")) {
       return alert("Employees must clock out first before finalizing payroll.")
     }
@@ -574,6 +577,9 @@ export default function PineLakeApp() {
 
   // Save Employee Details
   async function handleSaveEmployee(empData) {
+    if (!managerSession) {
+      return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to save employee modifications.")
+    }
     const dbPayload = {
       name: empData.name,
       role: empData.role || empData.workRole,
@@ -1129,6 +1135,7 @@ export default function PineLakeApp() {
           setScreen={setScreen}
           setMgrProfile={setMgrProfile}
           setMgrSession={setMgrSession}
+          setMgrLoginMode={setMgrLoginMode}
           activeWeekKey={activeWeekKey}
           targetDate={targetDate}
           setTargetDate={setTargetDate}

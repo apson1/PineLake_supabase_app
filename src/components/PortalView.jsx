@@ -437,19 +437,36 @@ export default function PortalView({
           </div>
         )}
 
-        {/* Live Notices Marquee Ticker */}
-        <div className="mb-6 p-2 rounded-xl border border-white/5 bg-slate-950/65 overflow-hidden flex items-center gap-3">
-          <span className="text-[9px] font-mono bg-slate-900 border border-white/10 text-[#7ec8e3] font-bold px-2 py-0.5 rounded shrink-0 uppercase tracking-widest">
-            Notice
-          </span>
-          <div className="w-full overflow-hidden relative">
-            <marquee className="text-[11px] text-gray-300 font-sans tracking-wide pt-0.5" scrollamount="4">
-              {announcements && announcements.length > 0
-                ? announcements.map(a => a.text).join("  •  ")
-                : "Welcome to Pine Lake Employee Portal! Be safe and have a great shift."}
-            </marquee>
+        {/* Live Notices Banner */}
+        {announcements && announcements.length > 0 ? (
+          <div className="mb-6 p-4 rounded-3xl border border-cyan-500/10 bg-cyan-500/5 backdrop-blur-md shadow-lg flex items-start gap-3.5">
+            <div className="text-xl select-none mt-0.5 animate-bounce">📢</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[9px] font-mono text-[#7ec8e3] font-bold uppercase tracking-widest">
+                Active Announcements
+              </div>
+              <div className="mt-1.5 flex flex-col gap-1.5">
+                {announcements.map((ann, idx) => (
+                  <div key={idx} className="text-xs text-slate-300 leading-normal font-sans">
+                    • {ann.text}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="mb-6 p-4 rounded-3xl border border-white/5 bg-slate-900/20 backdrop-blur-md flex items-center gap-3.5">
+            <div className="text-xl select-none">🌿</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[9px] font-mono text-slate-400 font-bold uppercase tracking-widest">
+                No active announcements
+              </div>
+              <p className="text-xs text-slate-400 leading-normal font-sans mt-0.5">
+                Welcome to Pine Lake Employee Portal! Be safe and have a great shift.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
