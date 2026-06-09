@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { ROLE_COLORS, fmtElapsed, fmtMoney, DAYS, WORK_ROLES } from "../lib/utils"
 import { supabase } from "../lib/supabase"
+import AnalyticsDashboard from "./AnalyticsDashboard"
 
 function getSundayKey(dateStr) {
   const d = new Date(dateStr)
@@ -313,6 +314,7 @@ export default function ManagerDashboard({
     { id: "stations", label: "STATIONS" },
     { id: "sync", label: conflicts.length > 0 ? "SYNC CENTER ⚠️" : "SYNC CENTER" },
     { id: "labor", label: "LABOR COST" },
+    { id: "analytics", label: "ANALYTICS 📊" },
     { id: "schedule", label: "SCHEDULER" },
     { id: "payroll", label: "PAY CALC" },
     { id: "employees", label: "EMPLOYEES" },
@@ -860,6 +862,20 @@ export default function ManagerDashboard({
               </div>
             )}
           </div>
+        )}
+
+        {/* -------------------------------------------------------------
+            TAB: ANALYTICS
+            ------------------------------------------------------------- */}
+        {managerTab === "analytics" && (
+          <AnalyticsDashboard
+            now={now}
+            employees={employees}
+            schedules={schedules}
+            allLogs={allLogs}
+            timesheets={timesheets}
+            activeWeekKey={activeWeekKey}
+          />
         )}
 
         {/* -------------------------------------------------------------

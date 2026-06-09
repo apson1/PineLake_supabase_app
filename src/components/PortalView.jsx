@@ -578,23 +578,83 @@ export default function PortalView({
                 Week Statement Summary
               </div>
               
-              <div className="flex justify-between items-end mb-4 border-b border-white/5 pb-4">
-                <div>
-                  <div className="text-2xl font-mono font-black text-[#06d6a0] leading-none">
-                    {s.hours}
+              <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-4 gap-4">
+                <div className="flex-1 flex flex-col gap-4">
+                  <div>
+                    <div className="text-2xl font-mono font-black text-[#06d6a0] leading-none">
+                      {s.hours}
+                    </div>
+                    <span className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1.5 block">
+                      Logged Hours
+                    </span>
                   </div>
-                  <span className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1.5 block">
-                    Logged Hours
-                  </span>
-                </div>
-                <div className="text-right">
-                  <div className="text-lg font-mono font-bold text-white leading-none">
-                    {fmtMoney(s.gross)}
+                  <div>
+                    <div className="text-lg font-mono font-bold text-white leading-none">
+                      {fmtMoney(s.gross)}
+                    </div>
+                    <span className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1.5 block">
+                      Gross Pay
+                    </span>
                   </div>
-                  <span className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1.5 block">
-                    Gross Pay
-                  </span>
                 </div>
+
+                {/* Circular Hours Gauge */}
+                {(() => {
+                  const hrs = parseFloat(s.hours) || 0
+                  const limit = 40
+                  const radius = 28
+                  const stroke = 5.5
+                  const circumference = 2 * Math.PI * radius // ~175.929
+                  
+                  // Standard vs Overtime calculations
+                  const stdHours = Math.min(hrs, limit)
+                  const stdPercent = (stdHours / limit) * 100
+                  const strokeOffset = circumference - (stdPercent / 100) * circumference
+                  
+                  // Color selection: Standard gets glowing cyan/green, Overtime gets hot pink
+                  const ringColor = hrs > limit ? "#ef476f" : "#06d6a0"
+                  
+                  return (
+                    <div className="relative w-24 h-24 shrink-0 flex items-center justify-center">
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 72 72">
+                        {/* Background ring */}
+                        <circle
+                          cx="36"
+                          cy="36"
+                          r={radius}
+                          fill="none"
+                          stroke="rgba(255, 255, 255, 0.03)"
+                          strokeWidth={stroke}
+                        />
+                        {/* Progress ring */}
+                        <circle
+                          cx="36"
+                          cy="36"
+                          r={radius}
+                          fill="none"
+                          stroke={ringColor}
+                          strokeWidth={stroke}
+                          strokeDasharray={circumference}
+                          strokeDashoffset={strokeOffset}
+                          strokeLinecap="round"
+                          className="transition-all duration-500"
+                          style={{
+                            filter: `drop-shadow(0 0 3px ${ringColor}80)`
+                          }}
+                        />
+                      </svg>
+                      {/* Hours Center Text */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none text-center">
+                        <span className="text-sm font-black font-mono text-white leading-none">
+                          {hrs.toFixed(1)}h
+                        </span>
+                        <span className="text-[8px] text-gray-500 font-mono leading-none mt-1">
+                          {hrs > limit ? "OVERTIME" : `of ${limit}h`}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Tax Breakdowns */}
