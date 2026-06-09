@@ -216,8 +216,8 @@ export default function AnalyticsDashboard({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         
         {/* Card 1: Total Weekly Payroll */}
-        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl relative overflow-hidden backdrop-blur-md">
-          <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">
+        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-3.5 sm:p-5 shadow-xl relative overflow-hidden backdrop-blur-md">
+          <div className="text-[9px] font-mono text-gray-500 uppercase tracking-wider sm:tracking-widest mb-1.5">
             Wages + Taxes (Period)
           </div>
           <div className="text-2xl font-black font-mono text-[#06d6a0] leading-none mb-1">
@@ -230,9 +230,9 @@ export default function AnalyticsDashboard({
         </div>
 
         {/* Card 2: GPS Compliance Gauge */}
-        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl relative overflow-hidden backdrop-blur-md flex items-center justify-between">
+        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-3.5 sm:p-5 shadow-xl relative overflow-hidden backdrop-blur-md flex items-center justify-between gap-2">
           <div>
-            <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">
+            <div className="text-[9px] font-mono text-gray-500 uppercase tracking-wider sm:tracking-widest mb-1.5">
               Geofence Accuracy
             </div>
             <div className="text-2xl font-black font-mono text-[#7ec8e3] leading-none mb-1">
@@ -262,9 +262,9 @@ export default function AnalyticsDashboard({
         </div>
 
         {/* Card 3: Punctuality */}
-        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl relative overflow-hidden backdrop-blur-md flex items-center justify-between">
+        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-3.5 sm:p-5 shadow-xl relative overflow-hidden backdrop-blur-md flex items-center justify-between gap-2">
           <div>
-            <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">
+            <div className="text-[9px] font-mono text-gray-500 uppercase tracking-wider sm:tracking-widest mb-1.5">
               Staff Punctuality
             </div>
             <div className="text-2xl font-black font-mono text-[#fca311] leading-none mb-1">
@@ -294,8 +294,8 @@ export default function AnalyticsDashboard({
         </div>
 
         {/* Card 4: Punch Activity */}
-        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl relative overflow-hidden backdrop-blur-md">
-          <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">
+        <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-3.5 sm:p-5 shadow-xl relative overflow-hidden backdrop-blur-md">
+          <div className="text-[9px] font-mono text-gray-500 uppercase tracking-wider sm:tracking-widest mb-1.5">
             Total Logs Tracked
           </div>
           <div className="text-2xl font-black font-mono text-[#c77dff] leading-none mb-1">
@@ -411,7 +411,7 @@ export default function AnalyticsDashboard({
             </div>
 
             {/* Donut Legend */}
-            <div className="flex flex-col gap-2.5 max-h-48 overflow-y-auto pr-2 flex-1">
+            <div className="flex flex-col gap-2.5 max-h-48 overflow-y-auto pr-2 flex-1 w-full">
               {activeSlices.map((slice) => (
                 <div
                   key={slice.role}

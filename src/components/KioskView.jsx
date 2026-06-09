@@ -39,6 +39,80 @@ export default function KioskView({
   const timeString = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   const dateString = now.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })
 
+  const weatherCard = (
+    <div className="p-5 rounded-3xl border border-white/5 bg-slate-900/40 backdrop-blur-md shadow-xl">
+      <div className="text-[10px] font-bold text-slate-500 font-mono tracking-[0.2em] uppercase mb-4 border-b border-white/5 pb-2">
+        PARK CONDITIONS
+      </div>
+      
+      <div className="grid grid-cols-3 gap-3.5">
+        {/* Weather Info */}
+        <div className="flex flex-col items-center text-center p-2.5 rounded-2xl bg-slate-950/20 border border-white/5">
+          <span className="text-2xl mb-1.5 select-none">
+            {weather.code === 0 && "☀️"}
+            {weather.code >= 1 && weather.code <= 3 && "⛅"}
+            {(weather.code === 45 || weather.code === 48) && "🌫️"}
+            {weather.code >= 51 && weather.code <= 67 && "🌧️"}
+            {weather.code >= 71 && weather.code <= 77 && "🌨️"}
+            {weather.code >= 80 && weather.code <= 82 && "🌦️"}
+            {weather.code >= 95 && "⛈️"}
+          </span>
+          <span className="text-[10px] font-black text-white leading-tight font-heading truncate max-w-full">{weather.text}</span>
+          <span className="text-[9px] text-slate-400 font-mono mt-1 font-semibold">{weather.temp}°F Air</span>
+        </div>
+
+        {/* Wind / Water Info */}
+        <div className="flex flex-col items-center text-center p-2.5 rounded-2xl bg-slate-950/20 border border-white/5">
+          <span className="text-2xl mb-1.5 select-none">💨</span>
+          <span className="text-[10px] font-black text-white leading-tight font-heading">{weather.wind} mph Wind</span>
+          <span className="text-[9px] text-slate-400 font-mono mt-1 font-semibold">{weather.waterTemp}°F Water</span>
+        </div>
+
+        {/* Safety flag */}
+        <div className="flex flex-col items-center justify-between text-center p-2.5 rounded-2xl bg-slate-950/20 border border-white/5">
+          <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest">Waterfront</span>
+          
+          <div className="my-1 flex items-center justify-center gap-1.5">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${getFlagStyles(weather.flag).dot}`}></span>
+              <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${getFlagStyles(weather.flag).dot.split(" ")[0]}`}></span>
+            </span>
+            <span className={`text-[9px] font-mono font-black tracking-widest px-2 py-0.5 rounded-lg border ${getFlagStyles(weather.flag).badge}`}>
+              {weather.flag}
+            </span>
+          </div>
+          
+          <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest">Flag Status</span>
+        </div>
+      </div>
+    </div>
+  )
+
+  const announcementsCard = (
+    <div className="p-5 rounded-3xl border border-white/5 bg-slate-900/40 backdrop-blur-md shadow-xl flex flex-col min-h-[160px]">
+      <div className="text-[10px] font-bold text-slate-500 font-mono tracking-[0.2em] uppercase mb-3.5 border-b border-white/5 pb-2 flex items-center justify-between">
+        <span>Announcements</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+      </div>
+      
+      <div className="flex-1 flex flex-col gap-2.5 overflow-y-auto max-h-[160px] pr-1">
+        {announcements && announcements.length > 0 ? (
+          announcements.map((ann, idx) => (
+            <div key={idx} className="p-3 rounded-2xl bg-slate-950/15 border border-white/5 flex gap-2.5 items-start transition-all hover:bg-slate-950/25">
+              <span className="text-xs text-cyan-400 select-none mt-0.5">📢</span>
+              <p className="text-xs text-slate-300 leading-normal font-sans">{ann.text}</p>
+            </div>
+          ))
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-500 font-sans text-xs py-4">
+            <span className="text-xl mb-1 select-none">🌿</span>
+            No active announcements today.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div className="bg-transparent text-[#f3f4f6] selection:bg-[#7ec8e3]/30 selection:text-white font-sans antialiased min-h-screen">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -101,76 +175,10 @@ export default function KioskView({
               </div>
             </div>
 
-            {/* Weather / Water Conditions Banner */}
-            <div className="p-5 rounded-3xl border border-white/5 bg-slate-900/40 backdrop-blur-md shadow-xl">
-              <div className="text-[10px] font-bold text-slate-500 font-mono tracking-[0.2em] uppercase mb-4 border-b border-white/5 pb-2">
-                PARK CONDITIONS
-              </div>
-              
-              <div className="grid grid-cols-3 gap-3.5">
-                {/* Weather Info */}
-                <div className="flex flex-col items-center text-center p-2.5 rounded-2xl bg-slate-950/20 border border-white/5">
-                  <span className="text-2xl mb-1.5 select-none">
-                    {weather.code === 0 && "☀️"}
-                    {weather.code >= 1 && weather.code <= 3 && "⛅"}
-                    {(weather.code === 45 || weather.code === 48) && "🌫️"}
-                    {weather.code >= 51 && weather.code <= 67 && "🌧️"}
-                    {weather.code >= 71 && weather.code <= 77 && "🌨️"}
-                    {weather.code >= 80 && weather.code <= 82 && "🌦️"}
-                    {weather.code >= 95 && "⛈️"}
-                  </span>
-                  <span className="text-[10px] font-black text-white leading-tight font-heading truncate max-w-full">{weather.text}</span>
-                  <span className="text-[9px] text-slate-400 font-mono mt-1 font-semibold">{weather.temp}°F Air</span>
-                </div>
-
-                {/* Wind / Water Info */}
-                <div className="flex flex-col items-center text-center p-2.5 rounded-2xl bg-slate-950/20 border border-white/5">
-                  <span className="text-2xl mb-1.5 select-none">💨</span>
-                  <span className="text-[10px] font-black text-white leading-tight font-heading">{weather.wind} mph Wind</span>
-                  <span className="text-[9px] text-slate-400 font-mono mt-1 font-semibold">{weather.waterTemp}°F Water</span>
-                </div>
-
-                {/* Safety flag */}
-                <div className="flex flex-col items-center justify-between text-center p-2.5 rounded-2xl bg-slate-950/20 border border-white/5">
-                  <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest">Waterfront</span>
-                  
-                  <div className="my-1 flex items-center justify-center gap-1.5">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${getFlagStyles(weather.flag).dot}`}></span>
-                      <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${getFlagStyles(weather.flag).dot.split(" ")[0]}`}></span>
-                    </span>
-                    <span className={`text-[9px] font-mono font-black tracking-widest px-2 py-0.5 rounded-lg border ${getFlagStyles(weather.flag).badge}`}>
-                      {weather.flag}
-                    </span>
-                  </div>
-                  
-                  <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest">Flag Status</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Custom Announcements Feed */}
-            <div className="p-5 rounded-3xl border border-white/5 bg-slate-900/40 backdrop-blur-md shadow-xl flex flex-col min-h-[160px]">
-              <div className="text-[10px] font-bold text-slate-500 font-mono tracking-[0.2em] uppercase mb-3.5 border-b border-white/5 pb-2 flex items-center justify-between">
-                <span>Announcements</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-              </div>
-              
-              <div className="flex-1 flex flex-col gap-2.5 overflow-y-auto max-h-[160px] pr-1">
-                {announcements && announcements.length > 0 ? (
-                  announcements.map((ann, idx) => (
-                    <div key={idx} className="p-3 rounded-2xl bg-slate-950/15 border border-white/5 flex gap-2.5 items-start transition-all hover:bg-slate-950/25">
-                      <span className="text-xs text-cyan-400 select-none mt-0.5">📢</span>
-                      <p className="text-xs text-slate-300 leading-normal font-sans">{ann.text}</p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-500 font-sans text-xs py-4">
-                    <span className="text-xl mb-1 select-none">🌿</span>
-                    No active announcements today.
-                  </div>
-                )}
-              </div>
+            {/* Weather & Announcements: Desktop only in this column */}
+            <div className="hidden lg:flex flex-col gap-6">
+              {weatherCard}
+              {announcementsCard}
             </div>
             
           </div>
@@ -206,7 +214,7 @@ export default function KioskView({
               </button>
             </div>
 
-            {/* Staff Roster or Personal Device Message */}
+            {/* Staff Roster or Personal Device Box */}
             {isOfficialKiosk ? (
               <div className="p-6 rounded-3xl border border-white/5 bg-slate-900/40 backdrop-blur-md shadow-2xl">
                 
@@ -360,6 +368,13 @@ export default function KioskView({
             )}
             
           </div>
+
+          {/* Weather & Announcements: Mobile only below the main columns */}
+          <div className="flex lg:hidden flex-col gap-6 col-span-1">
+            {weatherCard}
+            {announcementsCard}
+          </div>
+
         </div>
       </div>
     </div>

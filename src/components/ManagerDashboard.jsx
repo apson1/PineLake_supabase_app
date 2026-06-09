@@ -363,7 +363,7 @@ export default function ManagerDashboard({
       <div className="max-w-6xl mx-auto px-4 py-8">
         
         {!managerSession && (
-          <div className="mb-6 p-4 rounded-3xl border border-amber-500/20 bg-amber-500/5 text-amber-400 text-xs font-mono flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_15px_rgba(252,163,17,0.05)] animate-pulse">
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-3xl border border-amber-500/20 bg-amber-500/5 text-amber-400 text-[11px] sm:text-xs font-mono flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_15px_rgba(252,163,17,0.05)] animate-pulse">
             <span className="text-center sm:text-left">⚠️ READ-ONLY ACCESS: You are logged in via PIN code. Full modification privileges require Secure Email Login.</span>
             <button
               onClick={() => {
@@ -431,7 +431,7 @@ export default function ManagerDashboard({
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex gap-1 overflow-x-auto mt-6 border-b border-white/5">
+          <div className="flex gap-1 overflow-x-auto mt-6 border-b border-white/5 scrollbar-none">
             {availableTabs.map((tab) => {
               const active = managerTab === tab.id
               return (
@@ -1095,7 +1095,7 @@ export default function ManagerDashboard({
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-11 gap-2 text-center overflow-x-auto pb-2">
+              <div className="flex md:grid md:grid-cols-11 gap-2 text-center overflow-x-auto pb-2 scrollbar-none">
                 {[9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map((hour) => {
                   const count = getStaffingCountForHour(hour)
                   let colorClass = "bg-[#06d6a0]/10 border-[#06d6a0]/30 text-[#06d6a0] shadow-[#06d6a0]/10" // optimal
@@ -1109,7 +1109,7 @@ export default function ManagerDashboard({
                   }
                   const displayHour = hour > 12 ? `${hour - 12} PM` : hour === 12 ? "12 PM" : `${hour} AM`
                   return (
-                    <div key={hour} className="flex flex-col items-center min-w-[50px]">
+                    <div key={hour} className="flex flex-col items-center min-w-[50px] shrink-0">
                       <div className="text-[9px] text-gray-400 font-mono font-bold mb-1.5">{displayHour}</div>
                       <div 
                         className={`w-12 h-12 rounded-full flex flex-col items-center justify-center border font-mono shadow-[0_0_12px] transition-all duration-300 hover:scale-105 ${colorClass}`}
@@ -1130,7 +1130,7 @@ export default function ManagerDashboard({
                     type="date"
                     value={targetDate}
                     onChange={(e) => setTargetDate(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 text-[#7ec8e3] rounded-xl p-2 px-3 text-xs font-mono focus:outline-none"
+                    className="bg-slate-900 border border-slate-800 text-[#7ec8e3] rounded-xl p-2 px-3 text-xs font-mono focus:outline-none w-full sm:w-auto min-w-[150px]"
                     style={{ colorScheme: "dark" }}
                   />
                 </div>
@@ -1213,7 +1213,7 @@ export default function ManagerDashboard({
 
             {scheduleView === "matrix" ? (
               /* Matrix Calendar Table */
-              <div className="overflow-x-auto bg-[#111827]/40 border border-white/5 rounded-3xl p-4 shadow-xl">
+              <div className="overflow-x-auto w-full bg-[#111827]/40 border border-white/5 rounded-3xl p-4 shadow-xl">
                 <table className="w-full text-left min-w-[850px] border-separate border-spacing-y-2">
                   <thead>
                     <tr>
@@ -1350,7 +1350,7 @@ export default function ManagerDashboard({
                   })}
                 </div>
 
-                <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-4 shadow-xl overflow-x-auto">
+                <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-4 shadow-xl overflow-x-auto w-full">
                   <div className="min-w-[760px] flex flex-col">
                     
                     {/* Time Grid Header */}
