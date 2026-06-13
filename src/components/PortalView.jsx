@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react"
-import { ROLE_COLORS, fmtElapsed, fmtMoney } from "../lib/utils"
+import { ROLE_COLORS, fmtElapsed, fmtMoney, certStatus, CERT_STATUS_STYLES, fmtDate } from "../lib/utils"
 import { jsPDF } from "jspdf"
 import { supabase } from "../lib/supabase"
+import { toast } from "../lib/notify"
 
 function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000
@@ -18,6 +19,7 @@ export default function PortalView({
   portalEmp,
   setPortalEmp,
   setScreen,
+  employees = [],
   clockedIn,
   getElapsed,
   activeWeekKey,
@@ -31,6 +33,96 @@ export default function PortalView({
   const [gpsDistance, setGpsDistance] = useState(null)
   const [gpsError, setGpsError] = useState("")
   const [punchPending, setPunchPending] = useState(false)
+
+  // Time-off / shift-swap requests (employee self-service)
+  const [myRequests, setMyRequests] = useState([])
+  const [reqForm, setReqForm] = useState({ type: "Time Off", start_date: "", end_date: "", reason: "", swap_with: "", swap_day: "" })
+  const [reqSubmitting, setReqSubmitting] = useState(false)
+
+  const DAY_ORDER = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+  const weekGrid = schedules[activeWeekKey] || {}
+
+  // Days the employee is actually scheduled this week (candidates to swap away)
+  const myScheduledDays = DAY_ORDER.filter((d) => {
+    const v = weekGrid[d]?.[portalEmp.id]
+    return v && v !== "OFF"
+  })
+
+  const shiftLabel = (empId, day) => {
+    const v = weekGrid[day]?.[empId]
+    if (!v || v === "OFF") return "OFF"
+    return v.split("|")[0]
+  }
+
+  const coworkers = employees.filter((e) => e.id !== portalEmp.id)
+  const empName = (id) => employees.find((e) => e.id === Number(id))?.name || `#${id}`
+
+  const loadMyRequests = async () => {
+    const { data } = await supabase
+      .from("time_off_requests")
+      .select("*")
+      .eq("employee_id", portalEmp.id)
+      .order("created_at", { ascending: false })
+    if (data) setMyRequests(data)
+  }
+
+  useEffect(() => {
+    loadMyRequests()
+  }, [])
+
+  const submitRequest = async (e) => {
+    e.preventDefault()
+    const isSwap = reqForm.type === "Shift Swap"
+
+    let record
+    if (isSwap) {
+      if (!reqForm.swap_day || !reqForm.swap_with) {
+        toast.warning("Pick the shift to swap and a coworker to swap with.")
+        return
+      }
+      // start_date/end_date carry the schedule week key the swap applies to.
+      record = {
+        employee_id: portalEmp.id,
+        type: "Shift Swap",
+        start_date: activeWeekKey,
+        end_date: activeWeekKey,
+        swap_with: Number(reqForm.swap_with),
+        swap_day: reqForm.swap_day,
+        reason: reqForm.reason.trim(),
+        status: "pending",
+        created_at: new Date().toISOString()
+      }
+    } else {
+      if (!reqForm.start_date || !reqForm.end_date) {
+        toast.warning("Please choose both a start and end date.")
+        return
+      }
+      if (reqForm.end_date < reqForm.start_date) {
+        toast.warning("End date can't be before the start date.")
+        return
+      }
+      record = {
+        employee_id: portalEmp.id,
+        type: reqForm.type,
+        start_date: reqForm.start_date,
+        end_date: reqForm.end_date,
+        reason: reqForm.reason.trim(),
+        status: "pending",
+        created_at: new Date().toISOString()
+      }
+    }
+
+    setReqSubmitting(true)
+    const { error } = await supabase.from("time_off_requests").insert(record)
+    setReqSubmitting(false)
+    if (error) {
+      toast.error("Could not submit request: " + error.message)
+    } else {
+      toast.success(isSwap ? "Swap request sent for approval." : "Request submitted for manager review.")
+      setReqForm({ type: "Time Off", start_date: "", end_date: "", reason: "", swap_with: "", swap_day: "" })
+      loadMyRequests()
+    }
+  }
 
   // Stations & Auto-out boundary states
   const [stations, setStations] = useState([])
@@ -227,7 +319,7 @@ export default function PortalView({
   }, [outOfBounds, isWorking])
 
   const triggerAutoOut = async () => {
-    alert("AUTO-OUT: You have been automatically clocked out for leaving your work boundary for more than 60 seconds.")
+    toast.warning("Auto clock-out: you left your work boundary for over 60 seconds.", { duration: 7000 })
     await onClockAction("AUTO-OUT")
   }
 
@@ -375,7 +467,7 @@ export default function PortalView({
       // Step 2: Invoke clock action
       await onClockAction(actionType, dist?.coords)
     } catch (err) {
-      alert(err || "Punch verification failed.")
+      toast.error(typeof err === "string" ? err : err?.message || "Punch verification failed.")
     } finally {
       setPunchPending(false)
     }
@@ -723,7 +815,7 @@ export default function PortalView({
                 {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day) => {
                   const shift = wk[day]?.[portalEmp.id] || "OFF"
                   const isOffDay = shift === "OFF"
-                  
+
                   return (
                     <div key={day} className="flex justify-between items-center py-1.5 border-b border-white/5 last:border-0">
                       <span className="text-xs text-gray-400 font-sans">{day}</span>
@@ -738,6 +830,166 @@ export default function PortalView({
                   )
                 })}
               </div>
+            </div>
+
+            {/* My Certifications */}
+            <div className="p-5 rounded-3xl border border-white/5 bg-[#111827]/40 backdrop-blur-md shadow-xl">
+              <div className="text-xs font-bold text-gray-400 font-mono tracking-widest uppercase mb-4 border-b border-white/5 pb-2">
+                My Certifications
+              </div>
+
+              {(portalEmp.certifications || []).length === 0 ? (
+                <p className="text-[11px] text-gray-500 font-sans py-1">
+                  No credentials on file. Ask your manager to add your lifeguard or CPR certifications.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {portalEmp.certifications.map((c, idx) => {
+                    const st = certStatus(c.expires)
+                    const style = CERT_STATUS_STYLES[st.status]
+                    return (
+                      <div key={idx} className="flex items-center justify-between gap-3 py-1.5 border-b border-white/5 last:border-0">
+                        <div className="min-w-0">
+                          <div className="text-xs font-black text-white font-heading truncate">{c.type}</div>
+                          <div className="text-[10px] text-gray-500 font-mono mt-0.5">
+                            Expires {fmtDate(c.expires)}
+                          </div>
+                        </div>
+                        <span className={`shrink-0 text-[9px] font-mono font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border ${style.chip}`}>
+                          {st.status === "expired" ? "Expired" : st.status === "expiring" ? `${st.days}d left` : "Valid"}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Time Off & Shift Swap Requests */}
+            <div className="p-5 rounded-3xl border border-white/5 bg-[#111827]/40 backdrop-blur-md shadow-xl">
+              <div className="text-xs font-bold text-gray-400 font-mono tracking-widest uppercase mb-4 border-b border-white/5 pb-2">
+                Time Off &amp; Swaps
+              </div>
+
+              <form onSubmit={submitRequest} className="flex flex-col gap-3 mb-4">
+                <div>
+                  <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider block mb-1">Type</label>
+                  <select
+                    value={reqForm.type}
+                    onChange={(e) => setReqForm((p) => ({ ...p, type: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2 focus:outline-none cursor-pointer"
+                  >
+                    <option value="Time Off">Time Off</option>
+                    <option value="Shift Swap">Shift Swap</option>
+                    <option value="Sick">Sick</option>
+                  </select>
+                </div>
+
+                {reqForm.type === "Shift Swap" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider block mb-1">My shift</label>
+                        <select
+                          value={reqForm.swap_day}
+                          onChange={(e) => setReqForm((p) => ({ ...p, swap_day: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2 focus:outline-none cursor-pointer disabled:opacity-50"
+                          disabled={myScheduledDays.length === 0}
+                        >
+                          <option value="">{myScheduledDays.length === 0 ? "No shifts this week" : "Select day…"}</option>
+                          {myScheduledDays.map((d) => (
+                            <option key={d} value={d}>{d} ({shiftLabel(portalEmp.id, d)})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider block mb-1">Swap with</label>
+                        <select
+                          value={reqForm.swap_with}
+                          onChange={(e) => setReqForm((p) => ({ ...p, swap_with: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2 focus:outline-none cursor-pointer"
+                        >
+                          <option value="">Select coworker…</option>
+                          {coworkers.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    {reqForm.swap_day && reqForm.swap_with && (
+                      <div className="text-[10px] font-mono bg-slate-950/40 border border-white/5 rounded-lg p-2.5 flex items-center justify-center gap-2 text-slate-300">
+                        <span className="text-[#06d6a0]">You: {shiftLabel(portalEmp.id, reqForm.swap_day)}</span>
+                        <span className="text-slate-500">⇄</span>
+                        <span className="text-[#7ec8e3]">{empName(reqForm.swap_with).split(" ")[0]}: {shiftLabel(Number(reqForm.swap_with), reqForm.swap_day)}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider block mb-1">From</label>
+                      <input
+                        type="date"
+                        value={reqForm.start_date}
+                        onChange={(e) => setReqForm((p) => ({ ...p, start_date: e.target.value }))}
+                        style={{ colorScheme: "dark" }}
+                        className="w-full bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider block mb-1">To</label>
+                      <input
+                        type="date"
+                        value={reqForm.end_date}
+                        onChange={(e) => setReqForm((p) => ({ ...p, end_date: e.target.value }))}
+                        style={{ colorScheme: "dark" }}
+                        className="w-full bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+                <input
+                  type="text"
+                  value={reqForm.reason}
+                  onChange={(e) => setReqForm((p) => ({ ...p, reason: e.target.value }))}
+                  placeholder="Reason (optional)"
+                  className="w-full bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2.5 focus:outline-none focus:border-[#7ec8e3]/70"
+                />
+                <button
+                  type="submit"
+                  disabled={reqSubmitting}
+                  className="w-full bg-[#7ec8e3]/10 border border-[#7ec8e3]/30 text-[#7ec8e3] hover:bg-[#7ec8e3]/20 disabled:opacity-50 font-heading font-black text-xs uppercase tracking-wider py-2.5 rounded-xl transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  {reqSubmitting ? "Submitting..." : "Submit Request"}
+                </button>
+              </form>
+
+              {myRequests.length > 0 && (
+                <div className="flex flex-col gap-2 max-h-44 overflow-y-auto pr-1 border-t border-white/5 pt-3">
+                  {myRequests.map((r) => {
+                    const sc = r.status === "approved"
+                      ? "bg-[#06d6a0]/10 border-[#06d6a0]/30 text-[#06d6a0]"
+                      : r.status === "denied"
+                      ? "bg-[#ef476f]/10 border-[#ef476f]/30 text-[#ef476f]"
+                      : "bg-[#fca311]/10 border-[#fca311]/30 text-[#fca311]"
+                    return (
+                      <div key={r.id} className="flex items-center justify-between gap-2 py-1">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-white font-sans truncate">
+                            {r.type === "Shift Swap"
+                              ? `Shift Swap · ${r.swap_day} with ${empName(r.swap_with).split(" ")[0]}`
+                              : `${r.type} · ${fmtDate(r.start_date)}${r.end_date !== r.start_date ? ` – ${fmtDate(r.end_date)}` : ""}`}
+                          </div>
+                          {r.reason && <div className="text-[10px] text-gray-500 truncate">{r.reason}</div>}
+                        </div>
+                        <span className={`shrink-0 text-[9px] font-mono font-black uppercase tracking-wider px-2 py-1 rounded-lg border ${sc}`}>
+                          {r.status}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
           </div>

@@ -2,6 +2,7 @@ import { ROLE_COLORS, fmtElapsed } from "../lib/utils"
 
 export default function KioskView({
   employees,
+  isLoading,
   clockedIn,
   getElapsed,
   now,
@@ -148,10 +149,10 @@ export default function KioskView({
             {/* Branding Hero Banner */}
             <div className="relative w-full rounded-3xl overflow-hidden shadow-2xl border border-white/10 group">
               <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f19] via-[#0b0f19]/30 to-transparent z-10"></div>
-              <img 
-                src="/assets/hero_visual.png" 
-                alt="Pine Lake Recreation Hero" 
-                className="w-full h-44 object-cover group-hover:scale-105 transition-transform duration-700 ease-out select-none" 
+              <img
+                src="/assets/hero_lake.svg"
+                alt="Pine Lake Recreation"
+                className="w-full h-44 object-cover group-hover:scale-105 transition-transform duration-700 ease-out select-none"
               />
               <div className="absolute bottom-4 left-0 w-full text-center z-20">
                 <div className="text-[9px] font-mono font-bold text-[#7ec8e3] uppercase tracking-[0.22em] drop-shadow-md leading-none mb-2">
@@ -237,9 +238,24 @@ export default function KioskView({
                 {/* Roster List Grid */}
                 <div className="flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-1">
                   {employees.length === 0 ? (
-                    <div className="p-8 text-center text-slate-500 border border-dashed border-white/5 rounded-2xl bg-slate-950/25 font-mono text-xs">
-                      Loading roster database...
-                    </div>
+                    isLoading ? (
+                      // Skeleton rows while the roster loads
+                      <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading staff roster">
+                        {[0, 1, 2, 3].map((i) => (
+                          <div key={i} className="flex items-center gap-3.5 p-3.5 rounded-2xl border border-white/5 bg-slate-950/20">
+                            <div className="w-11 h-11 rounded-full bg-slate-800/60 animate-pulse shrink-0" />
+                            <div className="flex-1 flex flex-col gap-2">
+                              <div className="h-3 w-32 rounded bg-slate-800/60 animate-pulse" />
+                              <div className="h-2 w-20 rounded bg-slate-800/40 animate-pulse" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-8 text-center text-slate-500 border border-dashed border-white/5 rounded-2xl bg-slate-950/25 font-mono text-xs">
+                        No staff on the roster yet. Add team members from the Manager dashboard.
+                      </div>
+                    )
                   ) : (
                     employees.map((emp) => {
                       const s = clockedIn[emp.id]

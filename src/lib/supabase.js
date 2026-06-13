@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { getSundayKey } from "./utils"
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -10,21 +11,15 @@ const isMockMode = !supabaseUrl || !supabaseKey
 // LOCALSTORAGE MOCK DATABASE INITIALIZER
 // -------------------------------------------------------------
 const defaultEmployees = [
-  { id: 1, name: "Park Admin", role: "Park Admin", base_rate: 25.0, bonus_rate: 0.0, pin: "0000", auth_method: "pin", avatar: "PA", fed_tax_rate: 12.0, state_tax_rate: 5.5, county_tax_rate: 0.0, fica_tax_rate: 7.65, auth_id: "mock-admin-uid" },
-  { id: 2, name: "Site Manager", role: "Site Manager", base_rate: 20.0, bonus_rate: 0.0, pin: "9999", auth_method: "pin", avatar: "SM", fed_tax_rate: 12.0, state_tax_rate: 5.5, county_tax_rate: 0.0, fica_tax_rate: 7.65, auth_id: "mock-mgr-uid" },
-  { id: 3, name: "John Waterfront", role: "Waterfront", base_rate: 14.5, bonus_rate: 1.5, pin: "1111", auth_method: "pin", avatar: "JW", fed_tax_rate: 10.0, state_tax_rate: 5.0, county_tax_rate: 0.5, fica_tax_rate: 7.65 },
-  { id: 4, name: "Sarah Concessions", role: "Concessions", base_rate: 13.0, bonus_rate: 0.0, pin: "2222", auth_method: "face", avatar: "SC", fed_tax_rate: 10.0, state_tax_rate: 5.0, county_tax_rate: 0.5, fica_tax_rate: 7.65 },
-  { id: 5, name: "Mike Lifeguard", role: "Lifeguard", base_rate: 16.0, bonus_rate: 2.0, pin: "3333", auth_method: "pin", avatar: "ML", fed_tax_rate: 12.0, state_tax_rate: 5.5, county_tax_rate: 0.0, fica_tax_rate: 7.65 },
-  { id: 6, name: "Emma Gate", role: "Gate", base_rate: 12.5, bonus_rate: 0.0, pin: "4444", auth_method: "pin", avatar: "EG", fed_tax_rate: 8.0, state_tax_rate: 4.5, county_tax_rate: 0.0, fica_tax_rate: 7.65 }
+  { id: 1, name: "Park Admin", role: "Park Admin", base_rate: 25.0, bonus_rate: 0.0, pin: "0000", auth_method: "pin", avatar: "PA", fed_tax_rate: 12.0, state_tax_rate: 5.5, county_tax_rate: 0.0, fica_tax_rate: 7.65, auth_id: "mock-admin-uid", certifications: [{ type: "Pool Operator (CPO)", expires: "2027-03-01" }] },
+  { id: 2, name: "Site Manager", role: "Site Manager", base_rate: 20.0, bonus_rate: 0.0, pin: "9999", auth_method: "pin", avatar: "SM", fed_tax_rate: 12.0, state_tax_rate: 5.5, county_tax_rate: 0.0, fica_tax_rate: 7.65, auth_id: "mock-mgr-uid", certifications: [{ type: "First Aid", expires: "2027-01-15" }] },
+  { id: 3, name: "John Waterfront", role: "Waterfront", base_rate: 14.5, bonus_rate: 1.5, pin: "1111", auth_method: "pin", avatar: "JW", fed_tax_rate: 10.0, state_tax_rate: 5.0, county_tax_rate: 0.5, fica_tax_rate: 7.65, certifications: [{ type: "Lifeguard", expires: "2026-05-20" }, { type: "First Aid", expires: "2026-12-01" }] },
+  { id: 4, name: "Sarah Concessions", role: "Concessions", base_rate: 13.0, bonus_rate: 0.0, pin: "2222", auth_method: "face", avatar: "SC", fed_tax_rate: 10.0, state_tax_rate: 5.0, county_tax_rate: 0.5, fica_tax_rate: 7.65, certifications: [{ type: "Food Handler", expires: "2026-06-25" }] },
+  { id: 5, name: "Mike Lifeguard", role: "Lifeguard", base_rate: 16.0, bonus_rate: 2.0, pin: "3333", auth_method: "pin", avatar: "ML", fed_tax_rate: 12.0, state_tax_rate: 5.5, county_tax_rate: 0.0, fica_tax_rate: 7.65, certifications: [{ type: "Lifeguard", expires: "2026-07-05" }, { type: "CPR/AED", expires: "2027-02-10" }] },
+  { id: 6, name: "Emma Gate", role: "Gate", base_rate: 12.5, bonus_rate: 0.0, pin: "4444", auth_method: "pin", avatar: "EG", fed_tax_rate: 8.0, state_tax_rate: 4.5, county_tax_rate: 0.0, fica_tax_rate: 7.65, certifications: [] }
 ]
 
-function getSundayKey(dateStr) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().split('T')[0]
-}
-
-const activeWeekKey = getSundayKey(new Date().toISOString().split('T')[0])
+const activeWeekKey = getSundayKey(new Date())
 
 const defaultSchedules = [
   { week_key: activeWeekKey, day: "Monday", employee_id: 3, shift_time: "09:00-17:00|Waterfront", version_ts: 1717800000000 },
@@ -66,6 +61,13 @@ if (isMockMode) {
   }
   if (!localStorage.getItem("pinelake_payroll_history")) {
     localStorage.setItem("pinelake_payroll_history", JSON.stringify([]))
+  }
+  if (!localStorage.getItem("pinelake_time_off_requests")) {
+    const defaultRequests = [
+      { id: 9001, employee_id: 5, type: "Time Off", start_date: "2026-07-10", end_date: "2026-07-12", reason: "Family vacation", status: "pending", created_at: new Date(Date.now() - 36 * 3600 * 1000).toISOString() },
+      { id: 9002, employee_id: 4, type: "Shift Swap", start_date: activeWeekKey, end_date: activeWeekKey, swap_with: 3, swap_day: "Wednesday", reason: "Doctor's appointment", status: "pending", created_at: new Date(Date.now() - 5 * 3600 * 1000).toISOString() }
+    ]
+    localStorage.setItem("pinelake_time_off_requests", JSON.stringify(defaultRequests))
   }
   if (!localStorage.getItem("pinelake_announcements")) {
     const defaultAnnouncements = [

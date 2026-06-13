@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { CERT_TYPES, certStatus, CERT_STATUS_STYLES } from "../lib/utils"
 
 export function Field({ label, error, children }) {
   return (
@@ -27,7 +28,8 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
           fedTaxRate: String(initial.fedTaxRate ?? 12),
           stateTaxRate: String(initial.stateTaxRate ?? 5.5),
           countyTaxRate: String(initial.countyTaxRate ?? 0),
-          ficaTaxRate: String(initial.ficaTaxRate ?? 7.65)
+          ficaTaxRate: String(initial.ficaTaxRate ?? 7.65),
+          certifications: Array.isArray(initial.certifications) ? initial.certifications : []
         }
       : {
           name: "",
@@ -39,13 +41,25 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
           fedTaxRate: "12",
           stateTaxRate: "5.5",
           countyTaxRate: "0",
-          ficaTaxRate: "7.65"
+          ficaTaxRate: "7.65",
+          certifications: []
         }
   )
   
   const [errors, setErrors] = useState({})
 
   const f = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+
+  // Certification row helpers
+  const addCert = () =>
+    setForm((p) => ({ ...p, certifications: [...p.certifications, { type: CERT_TYPES[0], expires: "" }] }))
+  const updateCert = (idx, key, val) =>
+    setForm((p) => ({
+      ...p,
+      certifications: p.certifications.map((c, i) => (i === idx ? { ...c, [key]: val } : c))
+    }))
+  const removeCert = (idx) =>
+    setForm((p) => ({ ...p, certifications: p.certifications.filter((_, i) => i !== idx) }))
 
   function validate() {
     const e = {}
@@ -83,7 +97,8 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
       fedTaxRate: parseFloat(form.fedTaxRate || 0),
       stateTaxRate: parseFloat(form.stateTaxRate || 0),
       countyTaxRate: parseFloat(form.countyTaxRate || 0),
-      ficaTaxRate: parseFloat(form.ficaTaxRate || 0)
+      ficaTaxRate: parseFloat(form.ficaTaxRate || 0),
+      certifications: form.certifications.filter((c) => c.type && c.expires)
     })
   }
 
@@ -215,6 +230,73 @@ export function EmployeeForm({ initial, onSave, onClose, title, saveLabel }) {
                 />
               </Field>
             </div>
+          </div>
+
+          {/* Certifications Card */}
+          <div className="bg-slate-950 border border-white/5 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[9px] text-gray-500 tracking-widest uppercase font-mono">
+                Certifications & Credentials
+              </div>
+              <button
+                type="button"
+                onClick={addCert}
+                className="text-[10px] font-black text-[#7ec8e3] hover:text-white bg-[#7ec8e3]/10 hover:bg-[#7ec8e3]/20 border border-[#7ec8e3]/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                + Add
+              </button>
+            </div>
+
+            {form.certifications.length === 0 ? (
+              <p className="text-[11px] text-gray-500 font-sans py-1">
+                No credentials on file. Add lifeguard, CPR, or food-handler certs to track expiry.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {form.certifications.map((c, idx) => {
+                  const st = c.expires ? certStatus(c.expires) : null
+                  const style = st ? CERT_STATUS_STYLES[st.status] : null
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <select
+                        value={c.type}
+                        onChange={(e) => updateCert(idx, "type", e.target.value)}
+                        className="flex-1 min-w-0 bg-slate-900 border border-slate-800 text-[11px] text-white rounded-lg p-2 focus:outline-none cursor-pointer"
+                      >
+                        {CERT_TYPES.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        value={c.expires}
+                        onChange={(e) => updateCert(idx, "expires", e.target.value)}
+                        style={{ colorScheme: "dark" }}
+                        className={`bg-slate-900 border text-[11px] text-white rounded-lg p-2 focus:outline-none ${
+                          style ? "" : "border-slate-800"
+                        }`}
+                        title={st ? `${style.label}${st.days < 0 ? ` ${Math.abs(st.days)}d ago` : ` in ${st.days}d`}` : "Expiry date"}
+                      />
+                      {style && (
+                        <span
+                          className={`shrink-0 w-2 h-2 rounded-full`}
+                          style={{ backgroundColor: style.color }}
+                          aria-label={style.label}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeCert(idx)}
+                        aria-label="Remove certification"
+                        className="shrink-0 text-gray-500 hover:text-[#ef476f] text-sm leading-none cursor-pointer px-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Auth Method */}

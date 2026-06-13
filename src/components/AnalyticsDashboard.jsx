@@ -207,6 +207,60 @@ export default function AnalyticsDashboard({
     .filter((item) => item.projectedHrs > 25) // show only those working substantial hours
     .sort((a, b) => b.projectedHrs - a.projectedHrs)
 
+  // --- 6. Weekly labor-cost forecast (from SCHEDULED shifts) ---
+  // Forward-looking projection: what the full week costs if every scheduled
+  // shift is worked, using the same OT rule as payroll (OT = weekday hours
+  // over 40 PLUS all weekend hours, at 1.5x) and the 10.95% employer burden.
+  const FORECAST_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+  const weekSchedFull = schedules[activeWeekKey] || {}
+
+  const parseShiftHours = (shiftStr) => {
+    if (!shiftStr || shiftStr === "OFF") return 0
+    const times = shiftStr.split("|")[0].split("-")
+    if (times.length !== 2) return 0
+    const [sh, sm] = times[0].split(":").map(Number)
+    const [eh, em] = times[1].split(":").map(Number)
+    if ([sh, sm, eh, em].some(Number.isNaN)) return 0
+    return Math.max(0, (eh * 60 + em - (sh * 60 + sm)) / 60)
+  }
+
+  const perDayCost = Object.fromEntries(FORECAST_DAYS.map((d) => [d, 0]))
+  let forecastTotalCost = 0
+  let forecastGross = 0
+  let forecastOTPremium = 0
+  let forecastHours = 0
+  let forecastOTHours = 0
+
+  employees.forEach((emp) => {
+    const base = Number(emp.baseRate || 0)
+    const bonus = Number(emp.bonusRate || 0)
+    let weekdayH = 0
+    let weekendH = 0
+
+    FORECAST_DAYS.forEach((d) => {
+      const h = parseShiftHours(weekSchedFull[d]?.[emp.id])
+      if (h > 0) {
+        if (d === "Saturday" || d === "Sunday") weekendH += h
+        else weekdayH += h
+        perDayCost[d] += h * base + h * bonus // straight-time daily spend
+      }
+    })
+
+    const regH = Math.min(weekdayH, 40)
+    const otH = Math.max(0, weekdayH - 40) + weekendH
+    const gross = regH * base + otH * base * 1.5 + (regH + otH) * bonus
+    forecastGross += gross
+    forecastTotalCost += gross + gross * 0.1095
+    forecastOTPremium += otH * base * 0.5 // the extra 0.5x premium above straight time
+    forecastHours += regH + otH
+    forecastOTHours += otH
+  })
+
+  const actualCostSoFar = totalFacilityCost
+  const forecastProgressPct = forecastTotalCost > 0 ? Math.min((actualCostSoFar / forecastTotalCost) * 100, 100) : 0
+  const maxDayCost = Math.max(...FORECAST_DAYS.map((d) => perDayCost[d]), 1)
+  const todayName = FORECAST_DAYS[new Date(now).getDay()]
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       
@@ -307,6 +361,114 @@ export default function AnalyticsDashboard({
           <div className="absolute top-2 right-4 text-xl opacity-20">📊</div>
         </div>
 
+      </div>
+
+      {/* -------------------------------------------------------------
+          SECTION: WEEKLY LABOR-COST FORECAST
+          ------------------------------------------------------------- */}
+      <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-6 shadow-xl relative backdrop-blur-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <div>
+            <h3 className="text-xs font-bold text-gray-300 font-mono tracking-widest uppercase mb-1">
+              Weekly Labor-Cost Forecast
+            </h3>
+            <span className="text-[10px] text-gray-500 font-mono">
+              Projected full-week cost from scheduled shifts (incl. OT &amp; employer taxes)
+            </span>
+          </div>
+          {forecastOTHours > 0 && (
+            <span className="text-[9px] font-mono bg-[#fca311]/10 text-[#fca311] border border-[#fca311]/25 font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider self-start">
+              {forecastOTHours.toFixed(1)}h scheduled OT
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Forecast figures + progress */}
+          <div className="lg:col-span-1 flex flex-col gap-4">
+            <div>
+              <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">
+                Projected Week Cost
+              </div>
+              <div className="text-3xl font-black font-mono text-[#7ec8e3] leading-none">
+                {fmtMoney(forecastTotalCost)}
+              </div>
+              <div className="text-[10px] text-gray-400 font-sans mt-1.5">
+                {forecastHours.toFixed(1)}h scheduled · {fmtMoney(forecastGross)} gross
+              </div>
+            </div>
+
+            {/* Actual vs projected bar */}
+            <div>
+              <div className="flex justify-between items-baseline mb-1.5">
+                <span className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">Actual so far</span>
+                <span className="text-[11px] font-mono font-black text-[#06d6a0]">{fmtMoney(actualCostSoFar)}</span>
+              </div>
+              <div
+                className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-white/5"
+                role="progressbar"
+                aria-valuenow={Math.round(forecastProgressPct)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Actual labor cost spent against forecast"
+              >
+                <div
+                  className="h-full rounded-full bg-[#06d6a0] transition-all duration-500"
+                  style={{ width: `${forecastProgressPct}%`, filter: "drop-shadow(0 0 2px #06d6a0)" }}
+                />
+              </div>
+              <div className="text-[9px] text-gray-500 font-mono mt-1.5">
+                {forecastProgressPct.toFixed(0)}% of forecast spent
+              </div>
+            </div>
+
+            {/* OT premium callout */}
+            <div className="bg-slate-950/40 border border-white/5 rounded-2xl p-3 flex items-center justify-between">
+              <div>
+                <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">OT Premium</div>
+                <div className="text-[9px] text-gray-500 font-sans mt-0.5">Extra 0.5× above straight time</div>
+              </div>
+              <div className={`text-base font-black font-mono ${forecastOTPremium > 0 ? "text-[#ef476f]" : "text-gray-500"}`}>
+                {fmtMoney(forecastOTPremium)}
+              </div>
+            </div>
+          </div>
+
+          {/* Per-day projected spend bar chart */}
+          <div className="lg:col-span-2">
+            <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-3">
+              Projected Daily Spend
+            </div>
+            <div className="flex items-end justify-between gap-2 sm:gap-3 h-40">
+              {FORECAST_DAYS.map((d) => {
+                const cost = perDayCost[d]
+                const heightPct = (cost / maxDayCost) * 100
+                const isToday = d === todayName
+                return (
+                  <div key={d} className="flex-1 flex flex-col items-center justify-end h-full gap-2">
+                    <span className="text-[8px] font-mono text-gray-400 font-bold">
+                      {cost > 0 ? fmtMoney(cost).replace(".00", "") : ""}
+                    </span>
+                    <div className="w-full flex-1 flex items-end">
+                      <div
+                        className="w-full rounded-t-lg transition-all duration-500"
+                        style={{
+                          height: `${Math.max(heightPct, cost > 0 ? 4 : 0)}%`,
+                          backgroundColor: isToday ? "#7ec8e3" : "rgba(126,200,227,0.35)",
+                          filter: isToday ? "drop-shadow(0 0 4px rgba(126,200,227,0.4))" : "none",
+                        }}
+                        title={`${d}: ${fmtMoney(cost)} projected`}
+                      />
+                    </div>
+                    <span className={`text-[9px] font-mono uppercase ${isToday ? "text-[#7ec8e3] font-black" : "text-gray-500"}`}>
+                      {d.slice(0, 3)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* -------------------------------------------------------------

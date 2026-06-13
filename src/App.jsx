@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react"
-import { supabase, IS_MOCK_DATABASE, MOCK_ADMIN_EMAIL, MOCK_MGR_EMAIL } from "./lib/supabase"
-import { ROLE_COLORS, blankWeek, weekKey, fmtElapsed, tabBtnStyle, tabBtnActiveStyle } from "./lib/utils"
+import { supabase, IS_MOCK_DATABASE, MOCK_ADMIN_EMAIL } from "./lib/supabase"
+import { ROLE_COLORS, fmtElapsed, tabBtnStyle, tabBtnActiveStyle, getSundayKey, todayKey } from "./lib/utils"
 import { EmployeeForm } from "./components/Forms"
 import PinPad from "./components/PinPad"
 import FaceScanUI from "./components/FaceScanUI"
@@ -9,8 +9,14 @@ import KioskView from "./components/KioskView"
 import PortalView from "./components/PortalView"
 import ManagerDashboard from "./components/ManagerDashboard"
 import WeatherEffects from "./components/WeatherEffects"
+import NotificationHost from "./components/NotificationHost"
+import { toast, promptDialog } from "./lib/notify"
 
-function generatePunchSignature(empId, action, timestamp, photo, coords) {
+// Non-cryptographic integrity checksum over the punch fields. This is a
+// tamper-EVIDENCE aid for manual audits, not a security guarantee — real
+// authentication is enforced by Supabase Auth + Row-Level Security on insert
+// (see supabase/schema.sql). Kept stable so stored values remain comparable.
+function generatePunchChecksum(empId, action, timestamp, photo, coords) {
   const inputStr = `${empId}-${action}-${timestamp}-${photo.substring(0, 100)}-${coords ? coords.latitude : 'kiosk'}`;
   let hash = 0;
   for (let i = 0; i < inputStr.length; i++) {
@@ -18,8 +24,7 @@ function generatePunchSignature(empId, action, timestamp, photo, coords) {
     hash = (hash << 5) - hash + char;
     hash = hash & hash;
   }
-  const hex = Math.abs(hash).toString(16).padStart(8, "0") + "f8a9e2c4b7d105e";
-  return "SEC-SIG-" + hex.toUpperCase().substring(0, 24);
+  return "CHK-" + (Math.abs(hash).toString(16).padStart(8, "0").toUpperCase());
 }
 import {
   cacheEmployees,
@@ -31,12 +36,6 @@ import {
   syncOfflinePunches
 } from "./lib/offlineSync"
 import * as XLSX from "xlsx"
-
-function getSundayKey(dateStr) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().split("T")[0]
-}
 
 function parseTo24h(timeStr) {
   if (!timeStr || timeStr === "OFF") return "09:00"
@@ -90,6 +89,7 @@ function fmtMoney(n) {
 export default function PineLakeApp() {
   // Global States
   const [employees, setEmployees] = useState([])
+  const [isLoading, setIsLoading] = useState(true) // true until the first data load resolves
   const [schedules, setSchedules] = useState({})
   const [clockedIn, setClockedIn] = useState({})
   const [allLogs, setAllLogs] = useState([])
@@ -122,7 +122,7 @@ export default function PineLakeApp() {
   const [editEmp, setEditEmp] = useState(null)
 
   const [now, setNow] = useState(new Date())
-  const [targetDate, setTargetDate] = useState(new Date().toISOString().split("T")[0])
+  const [targetDate, setTargetDate] = useState(todayKey())
 
   const activeWeekKey = getSundayKey(targetDate)
 
@@ -239,13 +239,19 @@ export default function PineLakeApp() {
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "PASSWORD_RECOVERY") {
-        const newPassword = window.prompt("Enter your new secure password (minimum 6 characters):")
+        const newPassword = await promptDialog({
+          title: "Reset Your Password",
+          message: "Enter your new secure password (minimum 6 characters).",
+          placeholder: "New password",
+          password: true,
+          confirmText: "Update Password",
+        })
         if (newPassword) {
           const { error } = await supabase.auth.updateUser({ password: newPassword })
           if (error) {
-            alert("Error: " + error.message)
+            toast.error("Could not update password: " + error.message)
           } else {
-            alert("Password updated successfully.")
+            toast.success("Password updated successfully.")
           }
         }
         await supabase.auth.signOut()
@@ -325,7 +331,8 @@ export default function PineLakeApp() {
         fedTaxRate: e.fed_tax_rate ?? 12,
         stateTaxRate: e.state_tax_rate ?? 5.5,
         countyTaxRate: e.county_tax_rate ?? 0,
-        ficaTaxRate: e.fica_tax_rate ?? 7.65
+        ficaTaxRate: e.fica_tax_rate ?? 7.65,
+        certifications: Array.isArray(e.certifications) ? e.certifications : []
       }))
       setEmployees(mapped)
     }
@@ -381,9 +388,12 @@ export default function PineLakeApp() {
 
   // Initial Boot Load
   useEffect(() => {
-    loadData().then(() => {
-      triggerOfflineSync()
-    })
+    loadData()
+      .catch((e) => console.error("Initial load failed:", e))
+      .finally(() => {
+        setIsLoading(false)
+        triggerOfflineSync()
+      })
   }, [])
 
   // Real-time updates subscription hook
@@ -500,7 +510,7 @@ export default function PineLakeApp() {
   // Export CSV Action
   async function handleExportCSV() {
     const { data } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
-    if (!data || data.length === 0) return alert("No history found.")
+    if (!data || data.length === 0) { toast.info("No payroll history found to export."); return }
     let csv = "Employee,Week Start,Total Hours,Pay Rate,Gross Pay,Fed Tax,State Tax,County Tax,FICA,Employer Tax,Total Cost,Net Pay\n"
     data.forEach(r => {
       const e = employees.find(emp => emp.id === r.employee_id)
@@ -508,14 +518,15 @@ export default function PineLakeApp() {
     })
     const link = document.createElement("a")
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
-    link.download = `Payroll_${new Date().toISOString().split("T")[0]}.csv`
+    link.download = `Payroll_${todayKey()}.csv`
     link.click()
+    toast.success(`Exported ${data.length} payroll record${data.length === 1 ? "" : "s"} to CSV.`)
   }
 
   // Export Excel Action
   async function handleExportXLSX() {
     const { data } = await supabase.from("payroll_history").select("*").order("week_start_date", { ascending: false })
-    if (!data || data.length === 0) return alert("No history found.")
+    if (!data || data.length === 0) { toast.info("No payroll history found to export."); return }
     const sheet = data.map(r => {
       const e = employees.find(emp => emp.id === r.employee_id)
       return {
@@ -536,16 +547,19 @@ export default function PineLakeApp() {
     const ws = XLSX.utils.json_to_sheet(sheet)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Payroll")
-    XLSX.writeFile(wb, `Payroll_${new Date().toISOString().split("T")[0]}.xlsx`)
+    XLSX.writeFile(wb, `Payroll_${todayKey()}.xlsx`)
+    toast.success(`Exported ${data.length} payroll record${data.length === 1 ? "" : "s"} to Excel.`)
   }
 
   // Finalize Payroll Action
   async function handleFinalizePayroll() {
     if (!managerSession) {
-      return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to finalize payroll.")
+      toast.error("PIN login is read-only. Sign in with email to finalize payroll.")
+      return
     }
     if (Object.values(clockedIn).some(s => s.status === "IN" || s.status === "BREAK")) {
-      return alert("Employees must clock out first before finalizing payroll.")
+      toast.warning("All employees must clock out before payroll can be finalized.")
+      return
     }
     const records = employees.map(emp => {
       const s = timesheets[emp.id]
@@ -565,20 +579,21 @@ export default function PineLakeApp() {
       }
     }).filter(r => r.total_hours > 0)
 
-    if (records.length === 0) return alert("No hours logged to save.")
+    if (records.length === 0) { toast.info("No hours logged this week to finalize."); return }
 
     const { error } = await supabase.from("payroll_history").insert(records)
     if (error) {
-      alert("Failed to finalize payroll: " + error.message)
+      toast.error("Failed to finalize payroll: " + error.message)
     } else {
-      alert("Payroll finalized and stored successfully.")
+      toast.success(`Payroll finalized for ${records.length} employee${records.length === 1 ? "" : "s"}.`)
     }
   }
 
   // Save Employee Details
   async function handleSaveEmployee(empData) {
     if (!managerSession) {
-      return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to save employee modifications.")
+      toast.error("PIN login is read-only. Sign in with email to edit staff records.")
+      return
     }
     const dbPayload = {
       name: empData.name,
@@ -591,7 +606,8 @@ export default function PineLakeApp() {
       fed_tax_rate: parseFloat(empData.fedTaxRate || 12),
       state_tax_rate: parseFloat(empData.stateTaxRate || 5.5),
       county_tax_rate: parseFloat(empData.countyTaxRate || 0),
-      fica_tax_rate: parseFloat(empData.ficaTaxRate || 7.65)
+      fica_tax_rate: parseFloat(empData.ficaTaxRate || 7.65),
+      certifications: Array.isArray(empData.certifications) ? empData.certifications : []
     }
 
     try {
@@ -606,9 +622,10 @@ export default function PineLakeApp() {
       }
       setShowAddEmp(false)
       setEditEmp(null)
+      toast.success(`${dbPayload.name} saved.`)
     } catch (err) {
       console.error("Save Error:", err)
-      alert("Save failed: " + err.message)
+      toast.error("Save failed: " + err.message)
     }
   }
 
@@ -616,12 +633,14 @@ export default function PineLakeApp() {
   async function doClockAction(emp, type, bypassKioskCheck = false, coords = null) {
     const isOfficialKiosk = !!localStorage.getItem("official_kiosk_token")
     if (!bypassKioskCheck && !isOfficialKiosk && (type === "IN" || type === "OUT" || type === "BREAK_START" || type === "BREAK_END")) {
-      alert("SECURITY ERROR: You can only clock in or out from the designated park tablet kiosk.")
+      toast.error("Clock-in is restricted to the designated park kiosk tablet.")
       setCapturedPhoto(null)
       setAuthEmp(null)
       setScreen("kiosk")
       return
     }
+
+    const ACTION_LABELS = { IN: "Clocked in", OUT: "Clocked out", BREAK_START: "Break started", BREAK_END: "Break ended", "AUTO-OUT": "Auto clocked out" }
 
     const isOnlineMode = navigator.onLine && !IS_MOCK_DATABASE
     const photo = capturedPhoto || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23111827'/><circle cx='50' cy='45' r='16' fill='%2300b4d8'/><path d='M20,90 C20,74 80,74 80,90' fill='%2300b4d8'/><text x='50' y='92' font-family='monospace' font-size='8' fill='%239ca3af' text-anchor='middle'>PORTAL GPS</text></svg>`
@@ -629,7 +648,7 @@ export default function PineLakeApp() {
     const finalCoords = coords || { latitude: 40.650318, longitude: -85.024517, accuracy: 5 }
     const isSuspicious = finalCoords && (finalCoords.accuracy === 0 || finalCoords.accuracy > 150)
     const timestamp = new Date().toISOString()
-    const signature = generatePunchSignature(emp.id, type, timestamp, photo, finalCoords)
+    const signature = generatePunchChecksum(emp.id, type, timestamp, photo, finalCoords)
 
     // OFFLINE QUEUE TRIGGER
     if (!isOnlineMode) {
@@ -665,7 +684,7 @@ export default function PineLakeApp() {
       })
       localStorage.setItem("pinelake_clock_logs", JSON.stringify(offlineLogs))
 
-      alert(`Offline Punch saved successfully (${type})! It will synchronize once internet is restored.`)
+      toast.success(`${ACTION_LABELS[type] || type} (offline) — will sync when back online.`)
       setCapturedPhoto(null)
       setAuthEmp(null)
       setScreen("kiosk")
@@ -680,7 +699,8 @@ export default function PineLakeApp() {
       })
       if (authError) {
         setCapturedPhoto(null)
-        return alert("Security Error: Identity verification failed.")
+        toast.error("Identity verification failed. Please try again.")
+        return
       }
 
       const { error: insertError } = await supabase.from("clock_logs").insert([{
@@ -693,9 +713,10 @@ export default function PineLakeApp() {
       if (insertError) throw insertError
 
       await supabase.auth.signOut()
+      toast.success(`${ACTION_LABELS[type] || type}, ${emp.name.split(" ")[0]}.`)
     } catch (err) {
       console.error(err)
-      alert("Punch failed: " + err.message)
+      toast.error("Punch failed: " + err.message)
     }
 
     setCapturedPhoto(null)
@@ -714,6 +735,7 @@ export default function PineLakeApp() {
       return (
         <KioskView
           employees={employees}
+          isLoading={isLoading}
           clockedIn={clockedIn}
           getElapsed={getElapsed}
           now={now}
@@ -926,6 +948,7 @@ export default function PineLakeApp() {
           portalEmp={portalEmp}
           setPortalEmp={setPortalEmp}
           setScreen={setScreen}
+          employees={employees}
           clockedIn={clockedIn}
           getElapsed={getElapsed}
           activeWeekKey={activeWeekKey}
@@ -1044,7 +1067,7 @@ export default function PineLakeApp() {
                 const password = e.target.password.value
 
                 const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-                if (error) return alert("Login failed: " + error.message)
+                if (error) { toast.error("Login failed: " + error.message); return }
 
                 let managerUser = null
 
@@ -1064,7 +1087,7 @@ export default function PineLakeApp() {
                   setMgrProfile(managerUser)
                   setScreen("manager-dashboard")
                 } else {
-                  alert("Access Denied: Account lacks administrative role privileges.")
+                  toast.error("Access denied: this account lacks manager privileges.")
                   await supabase.auth.signOut()
                 }
               }}
@@ -1162,6 +1185,7 @@ export default function PineLakeApp() {
   return (
     <div className="relative min-h-screen overflow-x-hidden">
       <WeatherEffects weather={weather} />
+      <NotificationHost />
       <div className="relative z-10">
         {showAddEmp && (
           <EmployeeForm title="Add Staff Member" onSave={handleSaveEmployee} onClose={() => setShowAddEmp(false)} />

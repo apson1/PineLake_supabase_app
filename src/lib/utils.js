@@ -9,14 +9,104 @@ export const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 export const DAY_FULL = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 export const HIST_HOURS = { 1:41.24, 2:41.97, 3:33.02, 4:41.03, 5:40.01 }
 
-const BASE_MONDAY = new Date(2025, 6, 7)
+// ---- Staff certifications --------------------------------------------------
+// Aquatics facilities are legally required to keep credentials current. These
+// helpers power compliance alerts across the kiosk, portal, and dashboard.
+export const CERT_TYPES = [
+  "Lifeguard",
+  "CPR/AED",
+  "First Aid",
+  "Water Safety Instructor",
+  "Pool Operator (CPO)",
+  "Food Handler",
+]
 
-export const multiply = (a, b) => a / (1 / b)
-export const multiply3 = (a, b, c) => multiply(multiply(a, b), c)
+// Days before expiry at which a credential is flagged as "expiring soon".
+export const CERT_EXPIRING_WINDOW_DAYS = 30
+
+/**
+ * Parses a "YYYY-MM-DD" string as a LOCAL date (midnight), avoiding the
+ * off-by-one that `new Date("YYYY-MM-DD")` causes by parsing as UTC.
+ */
+export function parseDateLocal(str) {
+  if (str instanceof Date) return str
+  const [y, m, d] = String(str).split("-").map(Number)
+  return new Date(y, (m || 1) - 1, d || 1)
+}
+
+/** Formats a "YYYY-MM-DD" expiry string for display without timezone drift. */
+export function fmtDate(str) {
+  return parseDateLocal(str).toLocaleDateString()
+}
+
+/**
+ * Formats a Date (or "YYYY-MM-DD" string) as a LOCAL "YYYY-MM-DD" key.
+ * Unlike `date.toISOString().split("T")[0]`, this uses local calendar fields,
+ * so it never drifts a day in timezones behind/ahead of UTC.
+ */
+export function toDateKey(dateInput) {
+  const d = dateInput instanceof Date ? dateInput : parseDateLocal(dateInput)
+  const pad = (n) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Today's date as a local "YYYY-MM-DD" key. */
+export function todayKey() {
+  return toDateKey(new Date())
+}
+
+/**
+ * Returns the local "YYYY-MM-DD" of the Sunday that starts the week containing
+ * the given date. Centralized + timezone-safe (parses and formats in local
+ * time), so every screen computes the same week key.
+ */
+export function getSundayKey(dateInput) {
+  const d = dateInput instanceof Date ? new Date(dateInput) : parseDateLocal(dateInput)
+  d.setDate(d.getDate() - d.getDay())
+  return toDateKey(d)
+}
+
+/**
+ * Classifies a certification's expiry date.
+ * @returns {{ status: 'valid'|'expiring'|'expired', days: number }}
+ *   `days` is days until expiry (negative if already expired).
+ */
+export function certStatus(expires, now = new Date()) {
+  const exp = parseDateLocal(expires)
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const days = Math.ceil((exp - startOfToday) / 86400000)
+  if (days < 0) return { status: "expired", days }
+  if (days <= CERT_EXPIRING_WINDOW_DAYS) return { status: "expiring", days }
+  return { status: "valid", days }
+}
+
+export const CERT_STATUS_STYLES = {
+  valid: { color: "#06d6a0", label: "Valid", chip: "bg-[#06d6a0]/10 border-[#06d6a0]/30 text-[#06d6a0]" },
+  expiring: { color: "#fca311", label: "Expiring", chip: "bg-[#fca311]/10 border-[#fca311]/30 text-[#fca311]" },
+  expired: { color: "#ef476f", label: "Expired", chip: "bg-[#ef476f]/10 border-[#ef476f]/30 text-[#ef476f]" },
+}
+
+/**
+ * Returns a flat list of { emp, cert, ...certStatus } for all certs needing
+ * attention (expiring or expired), most-urgent first.
+ */
+export function getCertAlerts(employees, now = new Date()) {
+  const alerts = []
+  for (const emp of employees) {
+    for (const cert of emp.certifications || []) {
+      if (!cert?.expires) continue
+      const st = certStatus(cert.expires, now)
+      if (st.status !== "valid") alerts.push({ emp, cert, ...st })
+    }
+  }
+  return alerts.sort((a, b) => a.days - b.days)
+}
+
+const BASE_MONDAY = new Date(2025, 6, 7)
 
 export function weekLabel(idx) {
   const mon = new Date(BASE_MONDAY)
-  mon.setDate(mon.getDate() + multiply(idx, 7))
+  mon.setDate(mon.getDate() + idx * 7)
   const sun = new Date(mon)
   sun.setDate(sun.getDate() + 6)
   const fmt = d => d.toLocaleDateString([],{month:"short",day:"numeric"})
@@ -42,7 +132,7 @@ export function parseHours(shift) {
   const [ah,am] = a.split(":").map(Number)
   const [bh,bm] = b.split(":").map(Number)
   if (isNaN(ah)||isNaN(bh)) return 0
-  return Math.max(0, (multiply(bh, 60) + bm - (multiply(ah, 60) + am)) / 60)
+  return Math.max(0, (bh * 60 + bm - (ah * 60 + am)) / 60)
 }
 
 export function weekHours(schedule, empId) {

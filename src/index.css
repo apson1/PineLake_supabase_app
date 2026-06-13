@@ -29,6 +29,32 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
   }
+
+  /* Keyboard accessibility: a clear focus ring for keyboard users on every
+     interactive element, without showing it for mouse clicks (:focus-visible).
+     Covers the whole app in one place. */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-brand-light);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+}
+
+/* Respect users who prefer reduced motion: tone down the heavy continuous
+   animations (pings, pulses, radar, weather) to avoid vestibular discomfort. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 /* Glow and pulse custom utilities */

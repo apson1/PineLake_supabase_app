@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react"
-import { ROLE_COLORS, fmtElapsed, fmtMoney, DAYS, WORK_ROLES } from "../lib/utils"
+import { ROLE_COLORS, fmtElapsed, fmtMoney, WORK_ROLES, certStatus, CERT_STATUS_STYLES, getCertAlerts, fmtDate, getSundayKey } from "../lib/utils"
 import { supabase } from "../lib/supabase"
+import { toast, confirmDialog, promptDialog } from "../lib/notify"
 import AnalyticsDashboard from "./AnalyticsDashboard"
 
-function getSundayKey(dateStr) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().split('T')[0]
+// Shared read-only guard message for PIN (non-email) manager sessions
+function denyReadOnly(action) {
+  toast.error(`PIN login is read-only. Sign in with email to ${action}.`)
 }
 
 const availableRoles = ["Park Admin", "Site Manager", ...WORK_ROLES]
@@ -48,6 +48,19 @@ export default function ManagerDashboard({
   const [selectedDay, setSelectedDay] = useState("Monday")
   const [editingShift, setEditingShift] = useState(null)
   const [newNotice, setNewNotice] = useState("")
+
+  // Tracks which async toolbar action is in flight, so its button can show a
+  // busy/disabled state instead of firing silently.
+  const [busyAction, setBusyAction] = useState(null)
+  const runAction = async (key, fn) => {
+    if (busyAction) return
+    setBusyAction(key)
+    try {
+      await fn()
+    } finally {
+      setBusyAction(null)
+    }
+  }
 
   const getStaffingCountForHour = (hour) => {
     let count = 0
@@ -103,7 +116,7 @@ export default function ManagerDashboard({
   const handleDrop = async (ev, targetEmpId) => {
     ev.preventDefault()
     if (!managerSession) {
-      alert("Access Denied: PIN login only grants read-only access. Please sign in with email to modify schedules.")
+      denyReadOnly("modify schedules")
       return
     }
     try {
@@ -158,6 +171,72 @@ export default function ManagerDashboard({
     if (data) setStations(data)
   }
 
+  // Time-off / shift-swap request inbox
+  const [timeOffRequests, setTimeOffRequests] = useState([])
+  const loadTimeOff = async () => {
+    const { data } = await supabase
+      .from("time_off_requests")
+      .select("*")
+      .order("created_at", { ascending: false })
+    if (data) setTimeOffRequests(data)
+  }
+  useEffect(() => {
+    loadTimeOff()
+  }, [])
+
+  const reviewRequest = async (req, status) => {
+    if (!managerSession) return denyReadOnly("review time-off requests")
+    const { error } = await supabase
+      .from("time_off_requests")
+      .update({ status, reviewed_at: new Date().toISOString() })
+      .eq("id", req.id)
+    if (error) {
+      toast.error("Could not update request: " + error.message)
+      return
+    }
+
+    const emp = employees.find((e) => e.id === req.employee_id)
+    const firstName = emp?.name?.split(" ")[0] || "request"
+
+    // Approving a shift swap actually exchanges the two employees' shifts for that day.
+    if (status === "approved" && req.type === "Shift Swap" && req.swap_with && req.swap_day) {
+      // start_date holds the schedule week key (Sunday) the swap belongs to.
+      const weekKey = req.start_date
+      const day = req.swap_day
+      const grid = schedules[weekKey]?.[day] || {}
+      const aShift = grid[req.employee_id] ?? "OFF"
+      const bShift = grid[req.swap_with] ?? "OFF"
+
+      setSchedules((prev) => {
+        const next = { ...prev }
+        if (!next[weekKey]) next[weekKey] = {}
+        if (!next[weekKey][day]) next[weekKey][day] = {}
+        next[weekKey][day] = { ...next[weekKey][day], [req.employee_id]: bShift, [req.swap_with]: aShift }
+        return next
+      })
+
+      const { error: swapErr } = await supabase.from("schedules").upsert(
+        [
+          { week_key: weekKey, day, employee_id: req.employee_id, shift_time: bShift },
+          { week_key: weekKey, day, employee_id: req.swap_with, shift_time: aShift }
+        ],
+        { onConflict: "week_key,day,employee_id" }
+      )
+      if (swapErr) {
+        toast.error("Approved, but the schedule swap failed to save: " + swapErr.message)
+        loadTimeOff()
+        return
+      }
+      const coworker = employees.find((e) => e.id === req.swap_with)
+      toast.success(`Swap approved — ${firstName} ↔ ${coworker?.name?.split(" ")[0] || "coworker"} on ${day}.`)
+      loadTimeOff()
+      return
+    }
+
+    toast.success(`${status === "approved" ? "Approved" : "Denied"} ${firstName}'s ${req.type.toLowerCase()}.`)
+    loadTimeOff()
+  }
+
   const checkConflicts = async () => {
     const { data: serverSchedules } = await supabase.from("schedules").select("*")
     if (!serverSchedules) return
@@ -187,32 +266,35 @@ export default function ManagerDashboard({
   }, [schedules, activeWeekKey])
 
   const handleAddStation = async (station) => {
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to add stations.")
+    if (!managerSession) return denyReadOnly("add stations")
     const { error } = await supabase.from("stations").insert([station])
     if (error) {
-      alert("Failed to add station: " + error.message)
+      toast.error("Failed to add station: " + error.message)
     } else {
+      toast.success(`Station "${station.name}" added.`)
       loadStations()
     }
   }
 
   const handleEditStation = async (id, updates) => {
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to edit stations.")
+    if (!managerSession) return denyReadOnly("edit stations")
     const { error } = await supabase.from("stations").update(updates).eq("id", id)
     if (error) {
-      alert("Failed to edit station: " + error.message)
+      toast.error("Failed to edit station: " + error.message)
     } else {
+      toast.success("Station updated.")
       loadStations()
     }
   }
 
   const handleDeleteStation = async (id) => {
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to delete stations.")
-    if (!confirm("Are you sure you want to delete this station?")) return
+    if (!managerSession) return denyReadOnly("delete stations")
+    if (!(await confirmDialog({ title: "Delete station?", message: "Staff will no longer be able to clock in from this geofenced zone.", confirmText: "Delete", danger: true }))) return
     const { error } = await supabase.from("stations").delete().eq("id", id)
     if (error) {
-      alert("Failed to delete station: " + error.message)
+      toast.error("Failed to delete station: " + error.message)
     } else {
+      toast.success("Station deleted.")
       loadStations()
     }
   }
@@ -227,11 +309,11 @@ export default function ManagerDashboard({
     }
     await supabase.from("schedules").upsert(rec)
     checkConflicts()
-    alert("Collision simulated! Check the Sync Center tab to resolve the conflict.")
+    toast.info("Collision simulated — open the Sync Center tab to resolve it.")
   }
 
   const resolveKeepLocal = async (conflict) => {
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to resolve conflicts.")
+    if (!managerSession) return denyReadOnly("resolve conflicts")
     const rec = {
       week_key: activeWeekKey,
       day: conflict.day,
@@ -241,11 +323,11 @@ export default function ManagerDashboard({
     }
     await supabase.from("schedules").upsert(rec)
     checkConflicts()
-    alert(`Resolved: Kept Local shift (${conflict.local_val}) for ${conflict.employee_name}.`)
+    toast.success(`Kept local shift (${conflict.local_val}) for ${conflict.employee_name}.`)
   }
 
   const resolveAcceptServer = (conflict) => {
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to resolve conflicts.")
+    if (!managerSession) return denyReadOnly("resolve conflicts")
     setSchedules(prev => {
       const next = { ...prev }
       if (!next[activeWeekKey]) next[activeWeekKey] = {}
@@ -253,7 +335,7 @@ export default function ManagerDashboard({
       next[activeWeekKey][conflict.day][conflict.employee_id] = conflict.server_val
       return next
     })
-    alert(`Resolved: Accepted Server shift (${conflict.server_val}) for ${conflict.employee_name}.`)
+    toast.success(`Accepted server shift (${conflict.server_val}) for ${conflict.employee_name}.`)
   }
 
   // Sync selected day with target date
@@ -264,18 +346,19 @@ export default function ManagerDashboard({
 
   const handleAddAnnouncement = async (e) => {
     e.preventDefault()
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to post announcements.")
+    if (!managerSession) return denyReadOnly("post announcements")
     if (!newNotice.trim()) return
-    
+
     const record = {
       text: newNotice.trim(),
       created_at: new Date().toISOString()
     }
-    
+
     const { data, error } = await supabase.from("announcements").insert(record)
     if (error) {
-      alert("Failed to post announcement: " + error.message)
+      toast.error("Failed to post announcement: " + error.message)
     } else {
+      toast.success("Announcement posted.")
       setNewNotice("")
       if (typeof loadData === "function") {
         loadData()
@@ -284,12 +367,13 @@ export default function ManagerDashboard({
   }
 
   const handleDeleteAnnouncement = async (id) => {
-    if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to delete announcements.")
-    if (!confirm("Are you sure you want to delete this announcement?")) return
+    if (!managerSession) return denyReadOnly("delete announcements")
+    if (!(await confirmDialog({ title: "Delete announcement?", message: "This will remove it from the kiosk and employee portals.", confirmText: "Delete", danger: true }))) return
     const { error } = await supabase.from("announcements").delete().eq("id", id)
     if (error) {
-      alert("Failed to delete announcement: " + error.message)
+      toast.error("Failed to delete announcement: " + error.message)
     } else {
+      toast.success("Announcement deleted.")
       if (typeof loadData === "function") {
         loadData()
       }
@@ -321,6 +405,12 @@ export default function ManagerDashboard({
     { gross: 0, taxes: 0, total: 0, hours: 0 }
   )
 
+  // Certification compliance alerts (expiring within 30 days or already expired)
+  const certAlerts = getCertAlerts(employees, now)
+  const expiredCount = certAlerts.filter((a) => a.status === "expired").length
+
+  const pendingRequests = timeOffRequests.filter((r) => r.status === "pending").length
+
   const availableTabs = [
     { id: "clock", label: "LIVE CLOCK" },
     { id: "stations", label: "STATIONS" },
@@ -330,6 +420,8 @@ export default function ManagerDashboard({
     { id: "schedule", label: "SCHEDULER" },
     { id: "payroll", label: "PAY CALC" },
     { id: "employees", label: "EMPLOYEES" },
+    { id: "certs", label: certAlerts.length > 0 ? `CERTS ⚠️` : "CERTS" },
+    { id: "requests", label: pendingRequests > 0 ? `REQUESTS (${pendingRequests})` : "REQUESTS" },
     { id: "timesheets", label: "TIMESHEETS" }
   ]
 
@@ -345,15 +437,15 @@ export default function ManagerDashboard({
   const isKioskRegistered = !!localStorage.getItem("official_kiosk_token")
   const toggleKioskRegistration = () => {
     if (!managerSession) {
-      alert("Access Denied: PIN login only grants read-only access. Please sign in with email to register/unregister this kiosk device.")
+      denyReadOnly("register or unregister this kiosk device")
       return
     }
     if (isKioskRegistered) {
       localStorage.removeItem("official_kiosk_token")
-      alert("This device is NO LONGER registered as the official kiosk. Quick clock-in roster disabled.")
+      toast.warning("This device is no longer the official kiosk. Roster clock-in disabled.")
     } else {
       localStorage.setItem("official_kiosk_token", "kiosk-token-" + Math.random().toString(36).substring(2))
-      alert("SUCCESS! This device is now registered as the Official Kiosk. Staff roster clock-in enabled.")
+      toast.success("This device is now the official kiosk. Roster clock-in enabled.")
     }
     setScreen("manager-dashboard") // force re-render
   }
@@ -417,7 +509,8 @@ export default function ManagerDashboard({
 
               <button
                 onClick={async () => {
-                  if (confirm("Are you sure you want to log out of management?")) {
+                  if (await confirmDialog({ title: "Log out of management?", message: "You'll return to the kiosk home screen.", confirmText: "Log out" })) {
+                    if (managerSession) await supabase.auth.signOut()
                     setMgrProfile(null)
                     setMgrSession(null)
                     setScreen("kiosk")
@@ -450,6 +543,36 @@ export default function ManagerDashboard({
             })}
           </div>
         </div>
+
+        {/* Certification compliance banner (visible on every tab when action is needed) */}
+        {certAlerts.length > 0 && managerTab !== "certs" && (
+          <button
+            onClick={() => setMgrTab("certs")}
+            className={`w-full mb-6 p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-left transition-all hover:scale-[1.005] cursor-pointer ${
+              expiredCount > 0
+                ? "bg-[#ef476f]/10 border-[#ef476f]/30 text-[#ef476f]"
+                : "bg-[#fca311]/10 border-[#fca311]/30 text-[#fca311]"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-lg shrink-0">🛟</span>
+              <div className="min-w-0">
+                <div className="text-xs font-black font-heading uppercase tracking-wider">
+                  {expiredCount > 0
+                    ? `${expiredCount} expired credential${expiredCount === 1 ? "" : "s"} — staff may be working uncertified`
+                    : `${certAlerts.length} credential${certAlerts.length === 1 ? "" : "s"} expiring soon`}
+                </div>
+                <div className="text-[11px] text-slate-300 font-sans mt-0.5 truncate">
+                  {certAlerts.slice(0, 3).map((a) => `${a.emp.name.split(" ")[0]}: ${a.cert.type}`).join(" · ")}
+                  {certAlerts.length > 3 ? ` +${certAlerts.length - 3} more` : ""}
+                </div>
+              </div>
+            </div>
+            <span className="shrink-0 text-[10px] font-mono uppercase tracking-widest bg-black/30 px-3 py-1.5 rounded-lg border border-white/10">
+              Review →
+            </span>
+          </button>
+        )}
 
         {/* -------------------------------------------------------------
             TAB: LIVE CLOCK
@@ -772,7 +895,8 @@ export default function ManagerDashboard({
                     <button
                       onClick={async () => {
                         if (!stationFormData.name.trim() || !stationFormData.latitude || !stationFormData.longitude || !stationFormData.radius) {
-                          return alert("Please fill out all station parameters.")
+                          toast.warning("Please fill out all station parameters.")
+                          return
                         }
                         const p = {
                           name: stationFormData.name.trim(),
@@ -929,22 +1053,25 @@ export default function ManagerDashboard({
                 
                 <div className="flex gap-2">
                   <button
-                    onClick={handleExportCSV}
-                    className="bg-slate-900 border border-slate-800 text-gray-400 hover:text-white hover:bg-slate-800 font-mono text-[10px] font-bold py-2 px-3.5 rounded-xl cursor-pointer transition-all active:scale-95"
+                    onClick={() => runAction("csv", handleExportCSV)}
+                    disabled={!!busyAction}
+                    className="bg-slate-900 border border-slate-800 text-gray-400 hover:text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-[10px] font-bold py-2 px-3.5 rounded-xl cursor-pointer transition-all active:scale-95"
                   >
-                    CSV EXPORT
+                    {busyAction === "csv" ? "EXPORTING…" : "CSV EXPORT"}
                   </button>
                   <button
-                    onClick={handleExportXLSX}
-                    className="bg-slate-900 border border-slate-800 text-gray-400 hover:text-white hover:bg-slate-800 font-mono text-[10px] font-bold py-2 px-3.5 rounded-xl cursor-pointer transition-all active:scale-95"
+                    onClick={() => runAction("xlsx", handleExportXLSX)}
+                    disabled={!!busyAction}
+                    className="bg-slate-900 border border-slate-800 text-gray-400 hover:text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-[10px] font-bold py-2 px-3.5 rounded-xl cursor-pointer transition-all active:scale-95"
                   >
-                    EXCEL EXPORT
+                    {busyAction === "xlsx" ? "EXPORTING…" : "EXCEL EXPORT"}
                   </button>
                   <button
-                    onClick={handleFinalizePayroll}
-                    className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] font-heading text-[10px] font-black tracking-wider py-2 px-4 rounded-xl cursor-pointer transition-all active:scale-95 shadow-md shadow-[#06d6a0]/5"
+                    onClick={() => runAction("finalize", handleFinalizePayroll)}
+                    disabled={!!busyAction}
+                    className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] disabled:opacity-50 disabled:cursor-not-allowed font-heading text-[10px] font-black tracking-wider py-2 px-4 rounded-xl cursor-pointer transition-all active:scale-95 shadow-md shadow-[#06d6a0]/5"
                   >
-                    FINALIZE PAYROLL
+                    {busyAction === "finalize" ? "FINALIZING…" : "FINALIZE PAYROLL"}
                   </button>
                 </div>
               </div>
@@ -1167,15 +1294,15 @@ export default function ManagerDashboard({
                   onClick={() => {
                     const prev = new Date(targetDate)
                     prev.setDate(prev.getDate() - 7)
-                    const prevKey = getSundayKey(prev.toISOString().split("T")[0])
+                    const prevKey = getSundayKey(prev)
                     if (schedules[prevKey]) {
                       setSchedules((p) => ({
                         ...p,
                         [activeWeekKey]: JSON.parse(JSON.stringify(p[prevKey]))
                       }))
-                      alert("Copied schedule layout from previous week.")
+                      toast.success("Copied schedule layout from the previous week.")
                     } else {
-                      alert("No schedule found for the previous week.")
+                      toast.info("No schedule found for the previous week.")
                     }
                   }}
                   className="bg-slate-900 border border-slate-800 text-[#7ec8e3] hover:text-white hover:bg-slate-800 py-2.5 px-4 rounded-xl text-xs font-mono font-bold cursor-pointer transition-all active:scale-95"
@@ -1184,7 +1311,9 @@ export default function ManagerDashboard({
                 </button>
                 
                 <button
-                  onClick={async () => {
+                  disabled={!!busyAction}
+                  onClick={() => runAction("saveSched", async () => {
+                    if (!managerSession) { denyReadOnly("save schedules"); return }
                     const recs = []
                     const grid = schedules[activeWeekKey] || {}
                     for (const d of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]) {
@@ -1199,14 +1328,14 @@ export default function ManagerDashboard({
                     }
                     const { error } = await supabase.from("schedules").upsert(recs, { onConflict: "week_key,day,employee_id" })
                     if (error) {
-                      alert("Save failed: " + error.message)
+                      toast.error("Save failed: " + error.message)
                     } else {
-                      alert("Schedule changes saved successfully.")
+                      toast.success("Schedule changes saved.")
                     }
-                  }}
-                  className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] py-2.5 px-5 rounded-xl text-xs font-heading font-black tracking-wider cursor-pointer transition-all active:scale-95 shadow-md shadow-[#06d6a0]/5"
+                  })}
+                  className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] disabled:opacity-50 disabled:cursor-not-allowed py-2.5 px-5 rounded-xl text-xs font-heading font-black tracking-wider cursor-pointer transition-all active:scale-95 shadow-md shadow-[#06d6a0]/5"
                 >
-                  Save Schedule
+                  {busyAction === "saveSched" ? "Saving…" : "Save Schedule"}
                 </button>
               </div>
             </div>
@@ -1721,7 +1850,7 @@ export default function ManagerDashboard({
               <h2 className="text-sm font-black text-white font-heading">Staff Roster</h2>
               <button
                 onClick={() => {
-                  if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to add employees.")
+                  if (!managerSession) return denyReadOnly("add employees")
                   setShowAddEmp(true)
                 }}
                 className="bg-[#7ec8e3] text-[#070a13] hover:bg-[#68b4d0] font-heading font-black text-xs py-2.5 px-4 rounded-xl cursor-pointer transition-all active:scale-95"
@@ -1774,10 +1903,11 @@ export default function ManagerDashboard({
 
                     <button
                       onClick={() => {
-                        if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to edit employee details.")
+                        if (!managerSession) return denyReadOnly("edit employee details")
                         setEditEmp(e)
                       }}
                       className="bg-[#111827] border border-slate-800 text-[#7ec8e3] hover:text-white w-8 h-8 rounded-xl flex items-center justify-center text-xs cursor-pointer hover:bg-slate-800 transition-colors"
+                      aria-label={`Edit ${e.name}`}
                       title="Edit employee"
                     >
                       ✏️
@@ -1785,23 +1915,26 @@ export default function ManagerDashboard({
                     
                     <button
                       onClick={async () => {
-                        if (!managerSession) return alert("Access Denied: PIN login only grants read-only access. Please sign in with email to remove employees.")
-                        if (confirm(`Are you sure you want to delete ${e.name}?`)) {
-                          const confirmation = prompt("Type DELETE to confirm permanent removal:")
-                          if (confirmation === "DELETE") {
-                            const { error } = await supabase.from("employees").delete().eq("id", e.id)
-                            if (error) {
-                              alert("Deletion failed: " + error.message)
-                            } else {
-                              setEmployees((prev) => prev.filter((emp) => emp.id !== e.id))
-                              alert(`${e.name} has been removed.`)
-                            }
-                          } else if (confirmation !== null) {
-                            alert("Deletion canceled. Prompt verification text did not match.")
+                        if (!managerSession) return denyReadOnly("remove employees")
+                        const confirmation = await promptDialog({
+                          title: `Delete ${e.name}?`,
+                          message: "This permanently removes the employee and cannot be undone.",
+                          placeholder: "Type DELETE",
+                          match: "DELETE",
+                          confirmText: "Delete Permanently",
+                        })
+                        if (confirmation === "DELETE") {
+                          const { error } = await supabase.from("employees").delete().eq("id", e.id)
+                          if (error) {
+                            toast.error("Deletion failed: " + error.message)
+                          } else {
+                            setEmployees((prev) => prev.filter((emp) => emp.id !== e.id))
+                            toast.success(`${e.name} has been removed.`)
                           }
                         }
                       }}
                       className="bg-[#ef476f] text-[#070a13] hover:bg-[#d43d5e] w-8 h-8 rounded-xl flex items-center justify-center text-xs cursor-pointer transition-colors"
+                      aria-label={`Delete ${e.name}`}
                       title="Delete employee"
                     >
                       🗑️
@@ -1810,6 +1943,252 @@ export default function ManagerDashboard({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* -------------------------------------------------------------
+            TAB: CERTIFICATIONS (COMPLIANCE)
+            ------------------------------------------------------------- */}
+        {managerTab === "certs" && (
+          <div className="flex flex-col gap-6 animate-fade-in">
+            {(() => {
+              const allCerts = employees.flatMap((e) =>
+                (e.certifications || []).map((c) => ({ emp: e, cert: c, ...certStatus(c.expires, now) }))
+              )
+              const counts = {
+                valid: allCerts.filter((c) => c.status === "valid").length,
+                expiring: allCerts.filter((c) => c.status === "expiring").length,
+                expired: allCerts.filter((c) => c.status === "expired").length,
+              }
+              return (
+                <>
+                  {/* Summary stats */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-4 text-center">
+                      <div className="text-2xl font-black font-mono text-[#06d6a0]">{counts.valid}</div>
+                      <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1">Valid</div>
+                    </div>
+                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-4 text-center">
+                      <div className="text-2xl font-black font-mono text-[#fca311]">{counts.expiring}</div>
+                      <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1">Expiring ≤30d</div>
+                    </div>
+                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-4 text-center">
+                      <div className="text-2xl font-black font-mono text-[#ef476f]">{counts.expired}</div>
+                      <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mt-1">Expired</div>
+                    </div>
+                  </div>
+
+                  {/* Action-needed list */}
+                  <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl">
+                    <h2 className="text-xs font-bold text-gray-400 font-mono tracking-widest uppercase mb-4 border-b border-white/5 pb-2">
+                      Needs Attention
+                    </h2>
+                    {certAlerts.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500">
+                        <div className="text-3xl mb-2">✅</div>
+                        <p className="text-xs font-sans">All staff credentials are current. Nothing expiring in the next 30 days.</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2.5">
+                        {certAlerts.map((a, i) => {
+                          const style = CERT_STATUS_STYLES[a.status]
+                          return (
+                            <div key={i} className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950/30 border border-white/5">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[#111] font-mono text-[11px] shrink-0"
+                                  style={{ backgroundColor: ROLE_COLORS[a.emp.role] || "#7ec8e3" }}
+                                >
+                                  {a.emp.avatar}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-black text-white font-heading truncate">{a.emp.name}</div>
+                                  <div className="text-[11px] text-slate-400 font-sans">
+                                    {a.cert.type} · expires {fmtDate(a.cert.expires)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-[9px] font-mono font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border ${style.chip}`}>
+                                  {a.status === "expired" ? `${Math.abs(a.days)}d ago` : `${a.days}d left`}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    if (!managerSession) return denyReadOnly("update certifications")
+                                    setEditEmp(a.emp)
+                                  }}
+                                  className="text-[10px] font-black uppercase tracking-wider bg-[#7ec8e3]/10 text-[#7ec8e3] hover:bg-[#7ec8e3]/20 border border-[#7ec8e3]/30 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  Update
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Full roster credentials */}
+                  <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl">
+                    <h2 className="text-xs font-bold text-gray-400 font-mono tracking-widest uppercase mb-4 border-b border-white/5 pb-2">
+                      All Staff Credentials
+                    </h2>
+                    <div className="flex flex-col gap-3">
+                      {employees.map((e) => (
+                        <div key={e.id} className="flex items-start justify-between gap-3 py-2 border-b border-white/5 last:border-0">
+                          <div className="flex items-center gap-3 min-w-0 shrink-0 w-40">
+                            <div
+                              className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#111] font-mono text-[10px] shrink-0"
+                              style={{ backgroundColor: ROLE_COLORS[e.role] || "#7ec8e3" }}
+                            >
+                              {e.avatar}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-black text-white font-heading truncate">{e.name}</div>
+                              <div className="text-[9px] text-slate-500 font-mono uppercase tracking-wider truncate">{e.role}</div>
+                            </div>
+                          </div>
+                          <div className="flex-1 flex flex-wrap gap-1.5 justify-end">
+                            {(e.certifications || []).length === 0 ? (
+                              <span className="text-[10px] text-slate-600 font-sans italic">No credentials on file</span>
+                            ) : (
+                              e.certifications.map((c, idx) => {
+                                const st = certStatus(c.expires, now)
+                                const style = CERT_STATUS_STYLES[st.status]
+                                return (
+                                  <span
+                                    key={idx}
+                                    className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border ${style.chip}`}
+                                    title={`Expires ${fmtDate(c.expires)}`}
+                                  >
+                                    {c.type}
+                                  </span>
+                                )
+                              })
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* -------------------------------------------------------------
+            TAB: REQUESTS (TIME OFF / SHIFT SWAP INBOX)
+            ------------------------------------------------------------- */}
+        {managerTab === "requests" && (
+          <div className="flex flex-col gap-6 animate-fade-in">
+            {(() => {
+              const pending = timeOffRequests.filter((r) => r.status === "pending")
+              const reviewed = timeOffRequests.filter((r) => r.status !== "pending")
+              const RequestRow = ({ r, actionable }) => {
+                const emp = employees.find((e) => e.id === r.employee_id)
+                const sc = r.status === "approved"
+                  ? "bg-[#06d6a0]/10 border-[#06d6a0]/30 text-[#06d6a0]"
+                  : r.status === "denied"
+                  ? "bg-[#ef476f]/10 border-[#ef476f]/30 text-[#ef476f]"
+                  : "bg-[#fca311]/10 border-[#fca311]/30 text-[#fca311]"
+                return (
+                  <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-950/30 border border-white/5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#111] font-mono text-[11px] shrink-0"
+                        style={{ backgroundColor: ROLE_COLORS[emp?.role] || "#7ec8e3" }}
+                      >
+                        {emp?.avatar || "?"}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-black text-white font-heading truncate">
+                          {emp?.name || `Employee #${r.employee_id}`}
+                          <span className="ml-2 text-[10px] font-mono font-bold text-[#7ec8e3] uppercase tracking-wider">{r.type}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-sans">
+                          {r.type === "Shift Swap" && r.swap_with && r.swap_day ? (() => {
+                            const wk = r.start_date
+                            const grid = schedules[wk]?.[r.swap_day] || {}
+                            const aShift = (grid[r.employee_id] || "OFF").split("|")[0]
+                            const bShift = (grid[r.swap_with] || "OFF").split("|")[0]
+                            const coworker = employees.find((e) => e.id === r.swap_with)
+                            return (
+                              <span>
+                                {r.swap_day}: <span className="text-[#06d6a0] font-mono">{aShift}</span>
+                                {" ⇄ "}
+                                <span className="text-[#7ec8e3]">{coworker?.name?.split(" ")[0] || `#${r.swap_with}`}</span>{" "}
+                                <span className="text-[#7ec8e3] font-mono">{bShift}</span>
+                                {r.reason ? ` · ${r.reason}` : ""}
+                              </span>
+                            )
+                          })() : (
+                            <>
+                              {fmtDate(r.start_date)}{r.end_date !== r.start_date ? ` – ${fmtDate(r.end_date)}` : ""}
+                              {r.reason ? ` · ${r.reason}` : ""}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {actionable ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => reviewRequest(r, "approved")}
+                          className="text-[10px] font-black uppercase tracking-wider bg-[#06d6a0]/10 text-[#06d6a0] hover:bg-[#06d6a0]/20 border border-[#06d6a0]/30 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => reviewRequest(r, "denied")}
+                          className="text-[10px] font-black uppercase tracking-wider bg-[#ef476f]/10 text-[#ef476f] hover:bg-[#ef476f]/20 border border-[#ef476f]/30 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    ) : (
+                      <span className={`shrink-0 text-[9px] font-mono font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border ${sc}`}>
+                        {r.status}
+                      </span>
+                    )}
+                  </div>
+                )
+              }
+              return (
+                <>
+                  <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl">
+                    <h2 className="text-xs font-bold text-gray-400 font-mono tracking-widest uppercase mb-4 border-b border-white/5 pb-2 flex items-center justify-between">
+                      <span>Pending Approval</span>
+                      {pending.length > 0 && (
+                        <span className="text-[#fca311] bg-[#fca311]/10 border border-[#fca311]/30 px-2 py-0.5 rounded-lg">{pending.length}</span>
+                      )}
+                    </h2>
+                    {pending.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500">
+                        <div className="text-3xl mb-2">📭</div>
+                        <p className="text-xs font-sans">No pending requests. You're all caught up.</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2.5">
+                        {pending.map((r) => <RequestRow key={r.id} r={r} actionable />)}
+                      </div>
+                    )}
+                  </div>
+
+                  {reviewed.length > 0 && (
+                    <div className="bg-[#111827]/40 border border-white/5 rounded-3xl p-5 shadow-xl">
+                      <h2 className="text-xs font-bold text-gray-400 font-mono tracking-widest uppercase mb-4 border-b border-white/5 pb-2">
+                        Reviewed
+                      </h2>
+                      <div className="flex flex-col gap-2.5">
+                        {reviewed.map((r) => <RequestRow key={r.id} r={r} actionable={false} />)}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         )}
 
@@ -1913,12 +2292,13 @@ export default function ManagerDashboard({
                                 }
                               ])
                               if (error) {
-                                alert("Insert failed: " + error.message)
+                                toast.error("Insert failed: " + error.message)
                               } else {
                                 if (data) {
                                   setAllLogs((prev) => [data[0], ...prev])
                                 }
                                 setEditLog(null)
+                                toast.success("Time punch added.")
                               }
                             }}
                             className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] font-heading font-black text-[10px] py-2 px-3 rounded-lg flex-1 cursor-pointer"
@@ -1977,7 +2357,7 @@ export default function ManagerDashboard({
                                       .eq("id", log.id)
                                       
                                     if (error) {
-                                      alert("Update failed: " + error.message)
+                                      toast.error("Update failed: " + error.message)
                                     } else {
                                       setAllLogs((prev) =>
                                         prev.map((l) =>
@@ -1987,6 +2367,7 @@ export default function ManagerDashboard({
                                         )
                                       )
                                       setEditLog(null)
+                                      toast.success("Time punch updated.")
                                     }
                                   }}
                                   className="bg-[#06d6a0] text-[#070a13] hover:bg-[#05b586] font-heading font-black text-[10px] py-2 px-3 rounded-lg flex-1 cursor-pointer"
@@ -2067,6 +2448,7 @@ export default function ManagerDashboard({
                                   setLogEditData({ time: getLocalDatetimeString(logDate), action: log.action })
                                 }}
                                 className="text-[#7ec8e3] bg-[#111827] border border-slate-800 hover:bg-slate-800 w-8 h-8 rounded-xl flex items-center justify-center text-xs transition-colors cursor-pointer"
+                                aria-label="Edit time punch"
                                 title="Edit log"
                               >
                                 ✏️
@@ -2074,16 +2456,18 @@ export default function ManagerDashboard({
                               
                               <button
                                 onClick={async () => {
-                                  if (confirm("Permanently delete this time punch?")) {
+                                  if (await confirmDialog({ title: "Delete this time punch?", message: "This permanently removes the punch from the record.", confirmText: "Delete", danger: true })) {
                                     const { error } = await supabase.from("clock_logs").delete().eq("id", log.id)
                                     if (error) {
-                                      alert("Delete failed: " + error.message)
+                                      toast.error("Delete failed: " + error.message)
                                     } else {
                                       setAllLogs((prev) => prev.filter((l) => l.id !== log.id))
+                                      toast.success("Time punch deleted.")
                                     }
                                   }
                                 }}
                                 className="text-[#ef476f] bg-[#ef476f]/5 border border-[#ef476f]/15 hover:bg-[#ef476f]/15 w-8 h-8 rounded-xl flex items-center justify-center text-xs transition-colors cursor-pointer"
+                                aria-label="Delete time punch"
                                 title="Delete log"
                               >
                                 🗑️
@@ -2157,14 +2541,14 @@ export default function ManagerDashboard({
                   type="button"
                   onClick={() => {
                     if (!managerSession) {
-                      alert("Access Denied: PIN login only grants read-only access. Please sign in with email to modify schedules.")
+                      denyReadOnly("modify schedules")
                       setEditingShift(null)
                       return
                     }
                     const next = { ...schedules }
                     if (!next[activeWeekKey]) next[activeWeekKey] = {}
                     if (!next[activeWeekKey][editingShift.day]) next[activeWeekKey][editingShift.day] = {}
-                    
+
                     next[activeWeekKey][editingShift.day][editingShift.employee.id] = `${editingShift.start}-${editingShift.end}|${editingShift.role}`
                     setSchedules(next)
                     setEditingShift(null)
@@ -2179,7 +2563,7 @@ export default function ManagerDashboard({
                     type="button"
                     onClick={() => {
                       if (!managerSession) {
-                        alert("Access Denied: PIN login only grants read-only access. Please sign in with email to modify schedules.")
+                        denyReadOnly("modify schedules")
                         setEditingShift(null)
                         return
                       }
