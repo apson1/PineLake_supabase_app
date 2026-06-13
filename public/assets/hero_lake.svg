@@ -1,6 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 640" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Pine Lake at golden hour with a rainbow, water slide and sandy shore">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 640" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Pine Lake at golden hour with a full rainbow over a pine forest and a water slide">
   <defs>
-    <!-- Sky: deep blue at top fading to warm golden haze at the horizon -->
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"  stop-color="#1d3b63"/>
       <stop offset="32%" stop-color="#3f6a93"/>
@@ -8,127 +7,129 @@
       <stop offset="78%" stop-color="#d9b985"/>
       <stop offset="100%" stop-color="#f0d4a0"/>
     </linearGradient>
-
-    <radialGradient id="sun" cx="68%" cy="30%" r="40%">
+    <radialGradient id="sun" cx="26%" cy="26%" r="42%">
       <stop offset="0%"  stop-color="#fff6e0" stop-opacity="0.95"/>
-      <stop offset="35%" stop-color="#ffe7b0" stop-opacity="0.45"/>
+      <stop offset="35%" stop-color="#ffe7b0" stop-opacity="0.4"/>
       <stop offset="100%" stop-color="#ffe7b0" stop-opacity="0"/>
     </radialGradient>
-
-    <!-- Distant hazy tree ridge -->
-    <linearGradient id="ridgeFar" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5e7d6f"/>
-      <stop offset="100%" stop-color="#46685c"/>
-    </linearGradient>
-    <linearGradient id="ridgeMid" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#34523f"/>
-      <stop offset="100%" stop-color="#24402f"/>
-    </linearGradient>
-    <linearGradient id="ridgeNear" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#1f3a2a"/>
-      <stop offset="100%" stop-color="#14291d"/>
-    </linearGradient>
-
-    <!-- Water: reflects the warm horizon up top, deepens to teal in front -->
     <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"  stop-color="#cdb98a"/>
       <stop offset="12%" stop-color="#7d9aa6"/>
       <stop offset="45%" stop-color="#3f6b78"/>
       <stop offset="100%" stop-color="#244a57"/>
     </linearGradient>
-
     <linearGradient id="sunStripe" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"  stop-color="#ffe9bf" stop-opacity="0.85"/>
+      <stop offset="0%"  stop-color="#ffe9bf" stop-opacity="0.8"/>
       <stop offset="100%" stop-color="#ffe9bf" stop-opacity="0"/>
     </linearGradient>
-
-    <!-- Sandy shore -->
     <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"  stop-color="#b89a6a"/>
       <stop offset="100%" stop-color="#d8c193"/>
     </linearGradient>
-
     <linearGradient id="slide" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#f6c640"/>
       <stop offset="100%" stop-color="#e2a72e"/>
     </linearGradient>
-
     <radialGradient id="vignette" cx="50%" cy="42%" r="75%">
       <stop offset="60%" stop-color="#000000" stop-opacity="0"/>
       <stop offset="100%" stop-color="#0a1722" stop-opacity="0.42"/>
     </radialGradient>
-
     <clipPath id="skyClip"><rect x="0" y="0" width="1600" height="356"/></clipPath>
+    <g id="pine"><path d="M -16,0 L -6,-15 L -11,-15 L -4,-30 L -8,-30 L 0,-46 L 8,-30 L 4,-30 L 11,-15 L 6,-15 L 16,0 Z"/></g>
   </defs>
 
-  <!-- SKY -->
   <rect x="0" y="0" width="1600" height="356" fill="url(#sky)"/>
   <rect x="0" y="0" width="1600" height="356" fill="url(#sun)"/>
 
-  <!-- RAINBOW (upper right, soft) -->
-  <g clip-path="url(#skyClip)" opacity="0.5" fill="none" stroke-linecap="round">
-    <path d="M 1640 470 A 520 520 0 0 0 760 110" stroke="#e76f51" stroke-width="9"/>
-    <path d="M 1640 482 A 520 520 0 0 0 760 122" stroke="#f4a261" stroke-width="9"/>
-    <path d="M 1640 494 A 520 520 0 0 0 760 134" stroke="#e9c46a" stroke-width="9"/>
-    <path d="M 1640 506 A 520 520 0 0 0 760 146" stroke="#8ab17d" stroke-width="9"/>
-    <path d="M 1640 518 A 520 520 0 0 0 760 158" stroke="#5d99b0" stroke-width="9"/>
-    <path d="M 1640 530 A 520 520 0 0 0 760 170" stroke="#7b6aa0" stroke-width="9"/>
+  <path fill="#52705f" opacity="0.7" d="M0,322 C200,308 360,318 560,312 C820,304 1040,320 1280,310 C1430,304 1520,316 1600,312 L1600,360 L0,360 Z"/>
+
+  <g fill="#2f4a37" opacity="0.96">
+    <use href="#pine" transform="translate(75,344) scale(0.8)"/>
+    <use href="#pine" transform="translate(165,344) scale(0.95)"/>
+    <use href="#pine" transform="translate(255,344) scale(0.75)"/>
+    <use href="#pine" transform="translate(345,344) scale(0.9)"/>
+    <use href="#pine" transform="translate(435,344) scale(0.85)"/>
+    <use href="#pine" transform="translate(525,344) scale(0.8)"/>
+    <use href="#pine" transform="translate(615,344) scale(0.95)"/>
+    <use href="#pine" transform="translate(705,344) scale(0.75)"/>
+    <use href="#pine" transform="translate(795,344) scale(0.9)"/>
+    <use href="#pine" transform="translate(885,344) scale(0.85)"/>
+    <use href="#pine" transform="translate(975,344) scale(0.8)"/>
+    <use href="#pine" transform="translate(1065,344) scale(0.95)"/>
+    <use href="#pine" transform="translate(1155,344) scale(0.75)"/>
+    <use href="#pine" transform="translate(1245,344) scale(0.9)"/>
+    <use href="#pine" transform="translate(1335,344) scale(0.85)"/>
+    <use href="#pine" transform="translate(1425,344) scale(0.8)"/>
+    <use href="#pine" transform="translate(1515,344) scale(0.95)"/>
+    <use href="#pine" transform="translate(1590,344) scale(0.8)"/>
   </g>
 
-  <!-- DISTANT TREE RIDGES (layered for depth) -->
-  <path fill="url(#ridgeFar)" opacity="0.85" d="M0,300 L40,288 70,300 95,282 130,300 170,286 200,300 240,284 270,298 310,283 350,300 390,287 430,300 470,285 520,300 560,288 600,300 650,286 700,300 750,288 800,300 860,285 910,300 960,287 1010,300 1060,286 1110,300 1160,288 1210,300 1260,285 1320,300 1370,288 1420,300 1470,286 1520,300 1570,288 1600,298 L1600,360 L0,360 Z"/>
-  <path fill="url(#ridgeMid)" d="M0,318 L50,300 90,318 130,302 180,318 230,304 280,318 330,301 390,318 440,305 500,318 560,303 620,318 680,306 740,318 800,302 860,318 920,305 980,318 1040,303 1100,318 1160,306 1220,318 1280,302 1340,318 1400,305 1460,318 1520,304 1580,318 1600,312 L1600,372 L0,372 Z"/>
-  <path fill="url(#ridgeNear)" d="M0,340 L60,322 110,340 170,326 230,340 300,324 360,340 430,327 500,340 570,325 640,340 710,328 780,340 850,324 920,340 990,327 1060,340 1130,326 1200,340 1270,325 1340,340 1410,328 1480,340 1550,326 1600,338 L1600,400 L0,400 Z"/>
-
-  <!-- LAKE -->
-  <rect x="0" y="338" width="1600" height="208" fill="url(#water)"/>
-  <!-- sun reflection on the water -->
-  <rect x="1010" y="340" width="150" height="206" fill="url(#sunStripe)" opacity="0.6"/>
-  <!-- ripple highlights -->
-  <g stroke="#dfeaf0" stroke-linecap="round" opacity="0.18">
-    <line x1="120" y1="372" x2="300" y2="372" stroke-width="2"/>
-    <line x1="520" y1="388" x2="760" y2="388" stroke-width="2"/>
-    <line x1="980" y1="376" x2="1180" y2="376" stroke-width="2"/>
-    <line x1="240" y1="420" x2="560" y2="420" stroke-width="3"/>
-    <line x1="700" y1="446" x2="1040" y2="446" stroke-width="3"/>
-    <line x1="1140" y1="470" x2="1420" y2="470" stroke-width="3"/>
-    <line x1="80" y1="486" x2="360" y2="486" stroke-width="4"/>
+  <g fill="#16301f">
+    <use href="#pine" transform="translate(30,358) scale(1.25)"/>
+    <use href="#pine" transform="translate(120,358) scale(1.4)"/>
+    <use href="#pine" transform="translate(210,358) scale(1.15)"/>
+    <use href="#pine" transform="translate(300,358) scale(1.35)"/>
+    <use href="#pine" transform="translate(390,358) scale(1.2)"/>
+    <use href="#pine" transform="translate(480,358) scale(1.3)"/>
+    <use href="#pine" transform="translate(570,358) scale(1.45)"/>
+    <use href="#pine" transform="translate(660,358) scale(1.15)"/>
+    <use href="#pine" transform="translate(750,358) scale(1.35)"/>
+    <use href="#pine" transform="translate(840,358) scale(1.2)"/>
+    <use href="#pine" transform="translate(930,358) scale(1.3)"/>
+    <use href="#pine" transform="translate(1020,358) scale(1.45)"/>
+    <use href="#pine" transform="translate(1110,358) scale(1.15)"/>
+    <use href="#pine" transform="translate(1200,358) scale(1.35)"/>
+    <use href="#pine" transform="translate(1290,358) scale(1.2)"/>
+    <use href="#pine" transform="translate(1380,358) scale(1.3)"/>
+    <use href="#pine" transform="translate(1470,358) scale(1.45)"/>
+    <use href="#pine" transform="translate(1560,358) scale(1.2)"/>
   </g>
 
-  <!-- DOCK reaching into the lake -->
+  <g clip-path="url(#skyClip)" opacity="0.6" fill="none" stroke-linecap="round">
+    <path d="M 925,348 A 255,255 0 0 1 1180,93 A 255,255 0 0 1 1435,348" stroke="#e76f51" stroke-width="11"/>
+    <path d="M 936,348 A 244,244 0 0 1 1180,104 A 244,244 0 0 1 1424,348" stroke="#f4a261" stroke-width="11"/>
+    <path d="M 947,348 A 233,233 0 0 1 1180,115 A 233,233 0 0 1 1413,348" stroke="#e9c46a" stroke-width="11"/>
+    <path d="M 958,348 A 222,222 0 0 1 1180,126 A 222,222 0 0 1 1402,348" stroke="#8ab17d" stroke-width="11"/>
+    <path d="M 969,348 A 211,211 0 0 1 1180,137 A 211,211 0 0 1 1391,348" stroke="#5d99b0" stroke-width="11"/>
+    <path d="M 980,348 A 200,200 0 0 1 1180,148 A 200,200 0 0 1 1380,348" stroke="#7b6aa0" stroke-width="11"/>
+  </g>
+
+  <rect x="0" y="356" width="1600" height="190" fill="url(#water)"/>
+  <rect x="180" y="358" width="150" height="188" fill="url(#sunStripe)" opacity="0.5"/>
+  <g stroke="#dfeaf0" stroke-linecap="round" opacity="0.16">
+    <line x1="120" y1="384" x2="300" y2="384" stroke-width="2"/>
+    <line x1="520" y1="398" x2="760" y2="398" stroke-width="2"/>
+    <line x1="980" y1="388" x2="1180" y2="388" stroke-width="2"/>
+    <line x1="240" y1="426" x2="560" y2="426" stroke-width="3"/>
+    <line x1="700" y1="450" x2="1040" y2="450" stroke-width="3"/>
+    <line x1="1140" y1="472" x2="1420" y2="472" stroke-width="3"/>
+    <line x1="80" y1="492" x2="360" y2="492" stroke-width="4"/>
+  </g>
+
   <g fill="#2c2117">
-    <rect x="120" y="392" width="300" height="13" rx="3"/>
-    <rect x="150" y="405" width="9" height="40"/>
-    <rect x="250" y="405" width="9" height="44"/>
-    <rect x="350" y="405" width="9" height="48"/>
+    <rect x="120" y="398" width="300" height="13" rx="3"/>
+    <rect x="150" y="411" width="9" height="40"/>
+    <rect x="250" y="411" width="9" height="44"/>
+    <rect x="350" y="411" width="9" height="48"/>
   </g>
-  <rect x="120" y="392" width="300" height="4" fill="#4a3a28"/>
+  <rect x="120" y="398" width="300" height="4" fill="#4a3a28"/>
 
-  <!-- WATER SLIDE TOWER (right side) -->
   <g>
-    <!-- support posts -->
     <g fill="#3a2c1d">
-      <rect x="1232" y="250" width="12" height="150"/>
-      <rect x="1310" y="250" width="12" height="150"/>
-      <rect x="1270" y="210" width="12" height="190"/>
+      <rect x="1232" y="256" width="12" height="150"/>
+      <rect x="1310" y="256" width="12" height="150"/>
+      <rect x="1270" y="216" width="12" height="190"/>
     </g>
-    <!-- platform + roof -->
-    <rect x="1212" y="236" width="128" height="14" rx="3" fill="#5a4329"/>
-    <path d="M1200,236 L1276,196 L1352,236 Z" fill="#3f6a4a"/>
-    <rect x="1271" y="168" width="10" height="32" fill="#3a2c1d"/>
-    <path d="M1281,170 l34,11 -34,11 Z" fill="#ef476f"/>
-    <!-- yellow slides -->
-    <path d="M1240,250 C1180,330 1120,360 1040,470" fill="none" stroke="url(#slide)" stroke-width="26" stroke-linecap="round"/>
-    <path d="M1240,250 C1180,330 1120,360 1040,470" fill="none" stroke="#fff0c0" stroke-width="6" stroke-linecap="round" opacity="0.55" transform="translate(-5,-5)"/>
-    <path d="M1316,250 C1380,320 1410,400 1352,486" fill="none" stroke="url(#slide)" stroke-width="26" stroke-linecap="round"/>
-    <path d="M1316,250 C1380,320 1410,400 1352,486" fill="none" stroke="#fff0c0" stroke-width="6" stroke-linecap="round" opacity="0.55" transform="translate(-5,-5)"/>
+    <rect x="1212" y="242" width="128" height="14" rx="3" fill="#5a4329"/>
+    <path d="M1200,242 L1276,202 L1352,242 Z" fill="#3f6a4a"/>
+    <rect x="1271" y="174" width="10" height="32" fill="#3a2c1d"/>
+    <path d="M1281,176 l34,11 -34,11 Z" fill="#ef476f"/>
+    <path d="M1240,256 C1180,336 1120,366 1040,476" fill="none" stroke="url(#slide)" stroke-width="26" stroke-linecap="round"/>
+    <path d="M1316,256 C1380,326 1410,406 1352,492" fill="none" stroke="url(#slide)" stroke-width="26" stroke-linecap="round"/>
   </g>
 
-  <!-- SANDY SHORE in the foreground -->
-  <path d="M0,520 C260,500 520,512 760,540 C1040,572 1320,560 1600,536 L1600,640 L0,640 Z" fill="url(#sand)"/>
-  <!-- wet sand line -->
-  <path d="M0,520 C260,500 520,512 760,540 C1040,572 1320,560 1600,536" fill="none" stroke="#9c8158" stroke-width="6" opacity="0.5"/>
+  <path d="M0,524 C260,504 520,516 760,544 C1040,576 1320,564 1600,540 L1600,640 L0,640 Z" fill="url(#sand)"/>
+  <path d="M0,524 C260,504 520,516 760,544 C1040,576 1320,564 1600,540" fill="none" stroke="#9c8158" stroke-width="6" opacity="0.5"/>
 
-  <!-- atmospheric depth -->
   <rect x="0" y="0" width="1600" height="640" fill="url(#vignette)"/>
 </svg>
