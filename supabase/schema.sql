@@ -104,6 +104,25 @@ create table if not exists public.time_off_requests (
 create index if not exists time_off_employee_idx on public.time_off_requests (employee_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
+-- Column migrations: Ensure columns added in updates exist (if tables pre-existed)
+-- ---------------------------------------------------------------------------
+alter table public.employees add column if not exists auth_id uuid references auth.users (id) on delete set null;
+alter table public.employees add column if not exists pin text;
+alter table public.employees add column if not exists auth_method text not null default 'pin';
+alter table public.employees add column if not exists avatar text;
+alter table public.employees add column if not exists fed_tax_rate numeric(5,2) not null default 12;
+alter table public.employees add column if not exists state_tax_rate numeric(5,2) not null default 5.5;
+alter table public.employees add column if not exists county_tax_rate numeric(5,2) not null default 0;
+alter table public.employees add column if not exists fica_tax_rate numeric(5,2) not null default 7.65;
+alter table public.employees add column if not exists certifications jsonb not null default '[]'::jsonb;
+
+alter table public.clock_logs add column if not exists photo_base64 text;
+alter table public.clock_logs add column if not exists signature text;
+alter table public.clock_logs add column if not exists suspicious_gps boolean not null default false;
+
+alter table public.schedules add column if not exists version_ts bigint not null default 0;
+
+-- ---------------------------------------------------------------------------
 -- Helper: is the current auth user a manager?
 -- ---------------------------------------------------------------------------
 create or replace function public.is_manager()
@@ -140,18 +159,38 @@ alter table public.announcements    enable row level security;
 alter table public.payroll_history  enable row level security;
 alter table public.time_off_requests enable row level security;
 
--- EMPLOYEES: everyone authenticated can read the roster (needed for the kiosk).
+-- Drop existing policies to prevent conflicts/errors on rerun
+drop policy if exists "employees readable" on public.employees;
+drop policy if exists "employees managed by managers" on public.employees;
+drop policy if exists "clock_logs read own or manager" on public.clock_logs;
+drop policy if exists "clock_logs readable" on public.clock_logs;
+drop policy if exists "clock_logs insert own" on public.clock_logs;
+drop policy if exists "clock_logs managers edit" on public.clock_logs;
+drop policy if exists "clock_logs managers delete" on public.clock_logs;
+drop policy if exists "schedules readable" on public.schedules;
+drop policy if exists "schedules managed by managers" on public.schedules;
+drop policy if exists "stations readable" on public.stations;
+drop policy if exists "stations managed by managers" on public.stations;
+drop policy if exists "announcements readable" on public.announcements;
+drop policy if exists "announcements managed by managers" on public.announcements;
+drop policy if exists "payroll read own or manager" on public.payroll_history;
+drop policy if exists "payroll managed by managers" on public.payroll_history;
+drop policy if exists "timeoff read own or manager" on public.time_off_requests;
+drop policy if exists "timeoff insert own" on public.time_off_requests;
+drop policy if exists "timeoff managers review" on public.time_off_requests;
+drop policy if exists "timeoff delete own or manager" on public.time_off_requests;
+
+-- EMPLOYEES: readable by anyone (needed for kiosk roster and login select screens).
 -- Only managers may insert/update/delete staff records.
 create policy "employees readable" on public.employees
-  for select to authenticated using (true);
+  for select using (true);
 create policy "employees managed by managers" on public.employees
   for all to authenticated using (public.is_manager()) with check (public.is_manager());
 
--- CLOCK LOGS: an employee may read and insert only their OWN punches;
--- managers can read and write everything (for corrections).
-create policy "clock_logs read own or manager" on public.clock_logs
-  for select to authenticated
-  using (employee_id = public.current_employee_id() or public.is_manager());
+-- CLOCK LOGS: readable by anyone (needed for kiosk active status & dashboard clock feed).
+-- Employees can insert their own punches; managers have full write access.
+create policy "clock_logs readable" on public.clock_logs
+  for select using (true);
 create policy "clock_logs insert own" on public.clock_logs
   for insert to authenticated
   with check (employee_id = public.current_employee_id() or public.is_manager());
@@ -160,22 +199,21 @@ create policy "clock_logs managers edit" on public.clock_logs
 create policy "clock_logs managers delete" on public.clock_logs
   for delete to authenticated using (public.is_manager());
 
--- SCHEDULES: any authenticated user can read (employees see their shifts);
--- only managers may write.
+-- SCHEDULES: readable by anyone; only managers may write.
 create policy "schedules readable" on public.schedules
-  for select to authenticated using (true);
+  for select using (true);
 create policy "schedules managed by managers" on public.schedules
   for all to authenticated using (public.is_manager()) with check (public.is_manager());
 
--- STATIONS: readable by all (geofence checks); managed by managers.
+-- STATIONS: readable by anyone (geofence checks); managed by managers.
 create policy "stations readable" on public.stations
-  for select to authenticated using (true);
+  for select using (true);
 create policy "stations managed by managers" on public.stations
   for all to authenticated using (public.is_manager()) with check (public.is_manager());
 
--- ANNOUNCEMENTS: readable by all; posted/removed by managers.
+-- ANNOUNCEMENTS: readable by anyone; posted/removed by managers.
 create policy "announcements readable" on public.announcements
-  for select to authenticated using (true);
+  for select using (true);
 create policy "announcements managed by managers" on public.announcements
   for all to authenticated using (public.is_manager()) with check (public.is_manager());
 
@@ -202,4 +240,17 @@ create policy "timeoff delete own or manager" on public.time_off_requests
 -- ---------------------------------------------------------------------------
 -- Realtime: broadcast clock_logs inserts to the kiosk + dashboard
 -- ---------------------------------------------------------------------------
-alter publication supabase_realtime add table public.clock_logs;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' 
+      and schemaname = 'public' 
+      and tablename = 'clock_logs'
+  ) then
+    alter publication supabase_realtime add table public.clock_logs;
+  end if;
+end;
+$$;
+
+
